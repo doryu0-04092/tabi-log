@@ -8,6 +8,8 @@ package gen
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/oapi-codegen/runtime"
 )
 
 // Defines values for LivezResponseDataStatus.
@@ -91,6 +93,71 @@ func (e ReadyzResponseDataStatus) Valid() bool {
 	}
 }
 
+// Defines values for RequestedWith.
+const (
+	RequestedWithTabiLog RequestedWith = "tabi-log"
+)
+
+// Valid indicates whether the value is a known member of the RequestedWith enum.
+func (e RequestedWith) Valid() bool {
+	switch e {
+	case RequestedWithTabiLog:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LogoutParamsXRequestedWith.
+const (
+	LogoutParamsXRequestedWithTabiLog LogoutParamsXRequestedWith = "tabi-log"
+)
+
+// Valid indicates whether the value is a known member of the LogoutParamsXRequestedWith enum.
+func (e LogoutParamsXRequestedWith) Valid() bool {
+	switch e {
+	case LogoutParamsXRequestedWithTabiLog:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RefreshParamsXRequestedWith.
+const (
+	RefreshParamsXRequestedWithTabiLog RefreshParamsXRequestedWith = "tabi-log"
+)
+
+// Valid indicates whether the value is a known member of the RefreshParamsXRequestedWith enum.
+func (e RefreshParamsXRequestedWith) Valid() bool {
+	switch e {
+	case RefreshParamsXRequestedWithTabiLog:
+		return true
+	default:
+		return false
+	}
+}
+
+// AuthResponse defines model for AuthResponse.
+type AuthResponse struct {
+	Data struct {
+		// AccessToken JWT。`Authorization: Bearer <token>` で送る。
+		//
+		// **クライアントはこれをメモリにのみ保持し、localStorage に
+		// 保存しない。** 保存すると XSS で読み出せてしまう。
+		// リロード時は `/auth/refresh` から取り直す。
+		AccessToken string `json:"accessToken"`
+
+		// ExpiresIn アクセストークンの残り有効秒数
+		//
+		// Example: 900
+		ExpiresIn int `json:"expiresIn"`
+
+		// User 公開してよい利用者情報のみを含む。メールアドレスは含めない
+		User User `json:"user"`
+	} `json:"data"`
+}
+
 // ErrorResponse defines model for ErrorResponse.
 type ErrorResponse struct {
 	Error struct {
@@ -117,6 +184,19 @@ type LivezResponse struct {
 
 // LivezResponseDataStatus defines model for LivezResponse.Data.Status.
 type LivezResponseDataStatus string
+
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	// Email メールアドレス
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// MeResponse defines model for MeResponse.
+type MeResponse struct {
+	// Data 公開してよい利用者情報のみを含む。メールアドレスは含めない
+	Data User `json:"data"`
+}
 
 // Prefecture defines model for Prefecture.
 type Prefecture struct {
@@ -164,8 +244,107 @@ type ReadyzResponseDataDatabase string
 // ReadyzResponseDataStatus defines model for ReadyzResponse.Data.Status.
 type ReadyzResponseDataStatus string
 
+// SignupRequest defines model for SignupRequest.
+type SignupRequest struct {
+	// DisplayName Example: たびびと
+	DisplayName string `json:"displayName"`
+
+	// Email メールアドレス。ログインIDとして使う
+	//
+	// Example: traveler@example.com
+	Email string `json:"email"`
+
+	// Handle URL に使う識別子。英数字とアンダースコアのみ
+	//
+	// Example: traveler_01
+	Handle string `json:"handle"`
+
+	// Password 8文字以上。**上限を 72 にしているのは bcrypt の制約**である。
+	// bcrypt は 72 バイトを超える入力を切り捨てるため、
+	// それ以上を受け付けると「長いほど安全」という利用者の期待を裏切る。
+	Password string `json:"password"`
+}
+
+// User 公開してよい利用者情報のみを含む。メールアドレスは含めない
+type User struct {
+	Bio *string `json:"bio,omitempty"`
+
+	// DisplayName Example: たびびと
+	DisplayName string `json:"displayName"`
+
+	// Handle Example: traveler_01
+	Handle string `json:"handle"`
+
+	// Id Example: 1
+	Id int64 `json:"id"`
+}
+
+// RequestedWith defines model for RequestedWith.
+type RequestedWith string
+
+// CsrfRejected defines model for CsrfRejected.
+type CsrfRejected = ErrorResponse
+
+// RateLimited defines model for RateLimited.
+type RateLimited = ErrorResponse
+
+// Unauthenticated defines model for Unauthenticated.
+type Unauthenticated = ErrorResponse
+
+// ValidationError defines model for ValidationError.
+type ValidationError = ErrorResponse
+
+// LogoutParams defines parameters for Logout.
+type LogoutParams struct {
+	// XRequestedWith CSRF 対策。値は `tabi-log` 固定。
+	//
+	// カスタムヘッダーは単純リクエストの条件を外れるため、
+	// クロスオリジンから送るには CORS のプリフライトが通る必要がある。
+	// フォーム送信や `<img>` のような**プリフライトを伴わない経路では付けられない**。
+	// `SameSite=Strict` と合わせて二重に守る。
+	XRequestedWith LogoutParamsXRequestedWith `json:"X-Requested-With"`
+}
+
+// LogoutParamsXRequestedWith defines parameters for Logout.
+type LogoutParamsXRequestedWith string
+
+// RefreshParams defines parameters for Refresh.
+type RefreshParams struct {
+	// XRequestedWith CSRF 対策。値は `tabi-log` 固定。
+	//
+	// カスタムヘッダーは単純リクエストの条件を外れるため、
+	// クロスオリジンから送るには CORS のプリフライトが通る必要がある。
+	// フォーム送信や `<img>` のような**プリフライトを伴わない経路では付けられない**。
+	// `SameSite=Strict` と合わせて二重に守る。
+	XRequestedWith RefreshParamsXRequestedWith `json:"X-Requested-With"`
+}
+
+// RefreshParamsXRequestedWith defines parameters for Refresh.
+type RefreshParamsXRequestedWith string
+
+// LoginJSONRequestBody defines body for Login for application/json ContentType.
+type LoginJSONRequestBody = LoginRequest
+
+// SignupJSONRequestBody defines body for Signup for application/json ContentType.
+type SignupJSONRequestBody = SignupRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Login ログイン
+	// (POST /auth/login)
+	Login(w http.ResponseWriter, r *http.Request)
+	// Logout ログアウト
+	// (POST /auth/logout)
+	Logout(w http.ResponseWriter, r *http.Request, params LogoutParams)
+	// GetMe ログイン中の利用者
+	// (GET /auth/me)
+	GetMe(w http.ResponseWriter, r *http.Request)
+	// Refresh アクセストークンの再発行
+	// (POST /auth/refresh)
+	Refresh(w http.ResponseWriter, r *http.Request, params RefreshParams)
+	// Signup アカウントの作成
+	// (POST /auth/signup)
+	Signup(w http.ResponseWriter, r *http.Request)
 	// GetLivez プロセスの生存確認
 	// (GET /livez)
 	GetLivez(w http.ResponseWriter, r *http.Request)
@@ -185,6 +364,138 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// Login operation middleware
+func (siw *ServerInterfaceWrapper) Login(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Login(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Logout operation middleware
+func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params LogoutParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Requested-With" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Requested-With")]; found {
+		var XRequestedWith LogoutParamsXRequestedWith
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Requested-With", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Requested-With", valueList[0], &XRequestedWith, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Requested-With", Err: err})
+			return
+		}
+
+		params.XRequestedWith = XRequestedWith
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Requested-With is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Requested-With", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Logout(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMe operation middleware
+func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Refresh operation middleware
+func (siw *ServerInterfaceWrapper) Refresh(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RefreshParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Requested-With" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Requested-With")]; found {
+		var XRequestedWith RefreshParamsXRequestedWith
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Requested-With", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Requested-With", valueList[0], &XRequestedWith, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Requested-With", Err: err})
+			return
+		}
+
+		params.XRequestedWith = XRequestedWith
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Requested-With is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Requested-With", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Refresh(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Signup operation middleware
+func (siw *ServerInterfaceWrapper) Signup(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Signup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetLivez operation middleware
 func (siw *ServerInterfaceWrapper) GetLivez(w http.ResponseWriter, r *http.Request) {
@@ -348,6 +659,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/signup", wrapper.Signup)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/login", wrapper.Login)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/refresh", wrapper.Refresh)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/logout", wrapper.Logout)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/prefectures", wrapper.ListPrefectures)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/livez", wrapper.GetLivez)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/readyz", wrapper.GetReadyz)

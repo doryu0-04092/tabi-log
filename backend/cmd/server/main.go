@@ -13,9 +13,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/doryu0-04092/tabi-log/backend/internal/auth"
 	"github.com/doryu0-04092/tabi-log/backend/internal/config"
 	"github.com/doryu0-04092/tabi-log/backend/internal/httpapi"
 	"github.com/doryu0-04092/tabi-log/backend/internal/store"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func main() {
@@ -44,10 +47,36 @@ func run() error {
 	}
 	defer func() { _ = db.Close() }()
 
+	// 署名鍵は現在1つだが、kid で引く形にしておく。
+	// 署名方式を変えるときは、ここに検証用の鍵を足してから発行側を切り替える。
+	activeKey := auth.SigningKey{
+		ID:     cfg.Auth.JWTKeyID,
+		Method: jwt.SigningMethodHS256,
+		Secret: []byte(cfg.Auth.JWTSecret),
+	}
+	tokens, err := auth.NewJWTService(activeKey, []auth.SigningKey{activeKey}, cfg.Auth.AccessTokenTTL)
+	if err != nil {
+		return fmt.Errorf("トークンサービスを初期化できない: %w", err)
+	}
+
 	handler := httpapi.NewRouter(httpapi.Deps{
-		DB:          db,
-		Prefectures: store.NewPrefectureStore(db),
-		Logger:      logger,
+		DB:            db,
+		Prefectures:   store.NewPrefectureStore(db),
+		Auth:          store.NewAuthStore(db),
+		TokenIssuer:   tokens,
+		TokenVerifier: tokens,
+		AuthOptions: httpapi.AuthOptions{
+			RefreshTTL:   cfg.Auth.RefreshTokenTTL,
+			RefreshGrace: cfg.Auth.RefreshGracePeriod,
+			CookieSecure: cfg.Auth.CookieSecure,
+			// ローカルは直接受けるので false。ALB/CloudFront の背後では
+			// TRUST_PROXY_HEADERS=true にしないと、全利用者が同じ発信元と
+			// みなされてレート制限が機能しなくなる。
+			TrustProxyHeaders: cfg.Auth.TrustProxyHeaders,
+		},
+		LoginAttemptLimit:  cfg.Auth.LoginAttemptLimit,
+		LoginAttemptWindow: cfg.Auth.LoginAttemptWindow,
+		Logger:             logger,
 	})
 
 	srv := &http.Server{

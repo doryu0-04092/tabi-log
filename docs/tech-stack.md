@@ -85,7 +85,13 @@ Vite は上記のとおり前回使用しており、本来なら除外対象で
 | | 方式 | 寿命 | 保存場所 |
 |---|---|---|---|
 | アクセストークン | JWT（HS256、`golang-jwt/jwt/v5`） | 15分 | **JavaScript のメモリのみ。`Authorization` ヘッダで送信し、localStorage には保存しない** |
-| リフレッシュトークン | 暗号論的乱数32バイト（opaque）。DB には **SHA-256 ハッシュのみ**保存 | 7日 | **HttpOnly ＋ Secure ＋ SameSite=Strict Cookie、`Path=/api/auth/refresh` に限定** |
+| リフレッシュトークン | 暗号論的乱数32バイト（opaque）。DB には **SHA-256 ハッシュのみ**保存 | 7日 | **HttpOnly ＋ Secure ＋ SameSite=Strict Cookie、`Path=/api/auth` に限定** |
+
+> **`Path` を `/api/auth/refresh` まで絞らない理由（実装時に判明）**:
+> ログアウトでも Cookie を読んでサーバー側で失効させる必要がある。
+> `/api/auth/refresh` に限定すると `/api/auth/logout` へ Cookie が送られず、
+> ブラウザ側で消すことしかできなくなる（サーバー上のトークンが生き残る）。
+> `/api/auth` までとし、投稿や検索といった他の API には乗らない状態は保つ。
 
 前回は両方を Cookie に格納した。今回ヘッダ方式に変えたことで、**CSRF の対象が
 Cookie を使う2つのエンドポイント（`/api/auth/refresh`・`/api/auth/logout`）だけに縮小する**。

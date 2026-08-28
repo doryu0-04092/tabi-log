@@ -13,8 +13,10 @@ package httpapi
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/doryu0-04092/tabi-log/backend/internal/api/gen"
+	"github.com/doryu0-04092/tabi-log/backend/internal/auth"
 )
 
 // apiBasePath は全エンドポイントの前置きである。
@@ -34,6 +36,7 @@ var _ gen.ServerInterface = (*server)(nil)
 type server struct {
 	*healthHandler
 	*prefectureHandler
+	*authHandler
 }
 
 // Deps はルーターの構築に必要な依存をまとめる。
@@ -41,15 +44,25 @@ type Deps struct {
 	// DB は疎通確認にのみ使う。データの読み書きは各 store が担う。
 	DB          Pinger
 	Prefectures PrefectureLister
-	Logger      *slog.Logger
+	Auth        AuthRepository
+
+	TokenIssuer   auth.TokenIssuer
+	TokenVerifier auth.TokenVerifier
+	AuthOptions   AuthOptions
+
+	LoginAttemptLimit  int
+	LoginAttemptWindow time.Duration
+
+	Logger *slog.Logger
 }
 
 // NewRouter は全エンドポイントを登録した http.Handler を返す。
 //
 // ミドルウェアの適用順は外側から:
-//  1. WithRequestID — 追跡 ID を最初に発行する（以降のログすべてに載せるため）
-//  2. WithRecovery  — panic を捕捉する（ログ出力より内側だと記録が残らない）
-//  3. WithAccessLog — 実際のステータスと所要時間を記録する
+//  1. WithRequestID      — 追跡 ID を最初に発行する（以降のログすべてに載せるため）
+//  2. WithRecovery       — panic を捕捉する（ログ出力より内側だと記録が残らない）
+//  3. WithAccessLog      — 実際のステータスと所要時間を記録する
+//  4. WithAuthentication — 認証。**publicPaths 以外は既定で拒否する**
 func NewRouter(deps Deps) http.Handler {
 	mux := http.NewServeMux()
 
@@ -66,12 +79,36 @@ func NewRouter(deps Deps) http.Handler {
 	srv := &server{
 		healthHandler:     &healthHandler{db: deps.DB, logger: deps.Logger},
 		prefectureHandler: &prefectureHandler{store: deps.Prefectures, logger: deps.Logger},
+		authHandler: &authHandler{
+			repo:     deps.Auth,
+			issuer:   deps.TokenIssuer,
+			opts:     deps.AuthOptions,
+			logger:   deps.Logger,
+			byIP:     NewRateLimiter(deps.LoginAttemptLimit, deps.LoginAttemptWindow),
+			byEmail:  NewRateLimiter(deps.LoginAttemptLimit, deps.LoginAttemptWindow),
+			now:      time.Now,
+			newToken: auth.NewRefreshToken,
+		},
 	}
-	gen.HandlerFromMuxWithBaseURL(srv, mux, apiBasePath)
+
+	// ErrorHandlerFunc は、生成コードのパラメータ検証
+	//（必須ヘッダーの欠落など）で失敗したときの応答を決める。
+	//
+	// **既定のハンドラは text/plain で 400 を返し、内部のエラー文言をそのまま含める。**
+	// JSON を期待するクライアントが解釈に失敗するうえ、実装の詳細が漏れる。
+	// 他のエラーと同じ形に揃えるため、必ず差し替える。
+	gen.HandlerWithOptions(srv, gen.StdHTTPServerOptions{
+		BaseURL:    apiBasePath,
+		BaseRouter: mux,
+		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, _ error) {
+			writeError(w, r, http.StatusBadRequest, "invalid_request", "リクエストの形式が正しくありません")
+		},
+	})
 
 	return chain(mux,
 		WithRequestID,
 		WithRecovery(deps.Logger),
 		WithAccessLog(deps.Logger),
+		WithAuthentication(deps.TokenVerifier),
 	)
 }

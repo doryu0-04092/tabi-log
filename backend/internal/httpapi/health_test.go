@@ -1,34 +1,18 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
-// stubPinger は疎通確認の結果を固定で返す。
-type stubPinger struct{ err error }
-
-func (s stubPinger) PingContext(context.Context) error { return s.err }
-
-func discardLogger() *slog.Logger {
-	return slog.New(slog.NewJSONHandler(io.Discard, nil))
-}
-
-func newTestRouter(pingErr error) http.Handler {
-	return NewRouter(Deps{DB: stubPinger{err: pingErr}, Logger: discardLogger()})
-}
-
 // livez は依存先を見ないため、データベースが落ちていても 200 を返さなければならない。
 // これが崩れると、DB の一時的な不調で全タスクが置き換えられる状態に戻る。
 func TestLivez_DBが落ちていても200を返す(t *testing.T) {
-	router := newTestRouter(errors.New("connection refused"))
+	router := newRouter(t, testDeps{pingErr: errors.New("connection refused")})
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/livez", nil))
@@ -42,7 +26,7 @@ func TestLivez_DBが落ちていても200を返す(t *testing.T) {
 }
 
 func TestReadyz_DBが正常なら200を返す(t *testing.T) {
-	router := newTestRouter(nil)
+	router := newRouter(t, testDeps{})
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/readyz", nil))
@@ -66,7 +50,7 @@ func TestReadyz_DBが正常なら200を返す(t *testing.T) {
 }
 
 func TestReadyz_DBが落ちていたら503を返す(t *testing.T) {
-	router := newTestRouter(errors.New("connection refused"))
+	router := newRouter(t, testDeps{pingErr: errors.New("connection refused")})
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/readyz", nil))
@@ -89,17 +73,37 @@ func TestReadyz_DBが落ちていたら503を返す(t *testing.T) {
 }
 
 // 未定義のパスで HTML が返ると、JSON を期待するクライアントが解釈に失敗する。
-func TestNotFound_JSONで返す(t *testing.T) {
-	router := newTestRouter(nil)
+//
+// 認証済みの場合に 404 を返す。未認証の場合は後述のとおり 401 になる。
+func TestNotFound_認証済みならJSONの404を返す(t *testing.T) {
+	tokens := testTokens(t)
+	router := newRouter(t, testDeps{tokens: tokens})
 
 	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/does-not-exist", nil))
+	router.ServeHTTP(rec, withBearer(httptest.NewRequest(http.MethodGet, "/api/does-not-exist", nil),
+		mustIssue(t, tokens, 1)))
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("ステータス: 期待 %d, 実際 %d", http.StatusNotFound, rec.Code)
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
 		t.Errorf("Content-Type: 期待 JSON, 実際 %q", ct)
+	}
+}
+
+// 未認証で未定義のパスを叩くと 401 になる。
+//
+// **これは意図した挙動である。** 認証ミドルウェアが mux より外側にあり、
+// publicPaths に無いパスは「存在するかどうか」を判定する前に拒否する。
+// 未認証の相手に、どのエンドポイントが存在するかを教えない。
+func TestNotFound_未認証なら存在の有無を明かさず401を返す(t *testing.T) {
+	router := newRouter(t, testDeps{})
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/does-not-exist", nil))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("ステータス: 期待 %d, 実際 %d", http.StatusUnauthorized, rec.Code)
 	}
 }
 

@@ -20,7 +20,60 @@ type Config struct {
 	LogLevel        string // debug / info / warn / error
 	ShutdownTimeout time.Duration
 
-	DB DBConfig
+	DB   DBConfig
+	Auth AuthConfig
+}
+
+// AuthConfig は認証まわりの設定を表す。
+type AuthConfig struct {
+	// JWTSecret はアクセストークンの署名鍵。
+	// 本番では SSM Parameter Store の SecureString から注入する。
+	JWTSecret string
+
+	// JWTKeyID は JWT ヘッダーの kid に入る。
+	//
+	// 署名鍵を入れ替えるとき、新旧の鍵を並行して検証できるようにするための識別子である。
+	// 現在は1つしか無いが、**後から入れるとそれ以前に発行したトークンが
+	// どの鍵のものか分からなくなる**ため最初から付けておく。
+	JWTKeyID string
+
+	// AccessTokenTTL は短く保つ。
+	// 発行済みのアクセストークンは失効させられないため、
+	// ログアウト後に有効なまま残る時間がそのままこの値になる。
+	AccessTokenTTL time.Duration
+
+	RefreshTokenTTL time.Duration
+
+	// RefreshGracePeriod は、正規のローテーション直後に旧トークンが
+	// 提示された場合に盗用と判定しない猶予時間である。
+	//
+	// タブを複数開いた利用者は同じトークンで同時にリフレッシュを試みる。
+	// これが 0 だと後発のリクエストが盗用と判定され、
+	// **正常な利用者が突然全ログアウトされる。**
+	//
+	// 代償として、この時間内に限り盗まれたトークンの再提示も通る。
+	// 短くするほど安全だが、遅いネットワークでの同時リフレッシュを
+	// 誤検知しやすくなる。
+	RefreshGracePeriod time.Duration
+
+	// CookieSecure は本番で true にする。
+	// ローカルは HTTP のため false でないと Cookie が送られない。
+	CookieSecure bool
+
+	// LoginAttemptLimit / LoginAttemptWindow はログイン試行の上限。
+	LoginAttemptLimit  int
+	LoginAttemptWindow time.Duration
+
+	// TrustProxyHeaders は X-Forwarded-For を信用するかどうか。
+	//
+	// **ALB や CloudFront の背後では true にする。** false のままだと
+	// 発信元がすべてロードバランサのアドレスになり、レート制限が
+	// 「利用者ごとに N 回」ではなく「全体で N 回」になってしまう。
+	//
+	// 逆に、プロキシの背後でないのに true にすると、**攻撃者がヘッダーを
+	// 詐称してレート制限を回避できる。** どちらの向きにも誤ると壊れるため、
+	// 既定値には安全側（false）を置き、環境ごとに明示する。
+	TrustProxyHeaders bool
 }
 
 // DBConfig はデータベース接続の設定を表す。
@@ -70,6 +123,17 @@ func Load() (Config, error) {
 			MaxIdleConns:    envInt("DB_MAX_IDLE_CONNS", 25),
 			ConnMaxLifetime: envDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute),
 		},
+		Auth: AuthConfig{
+			JWTSecret:          envString("JWT_SECRET", ""),
+			JWTKeyID:           envString("JWT_KEY_ID", "v1"),
+			AccessTokenTTL:     envDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
+			RefreshTokenTTL:    envDuration("REFRESH_TOKEN_TTL", 7*24*time.Hour),
+			RefreshGracePeriod: envDuration("REFRESH_GRACE_PERIOD", 10*time.Second),
+			CookieSecure:       envBool("COOKIE_SECURE", false),
+			LoginAttemptLimit:  envInt("LOGIN_ATTEMPT_LIMIT", 10),
+			LoginAttemptWindow: envDuration("LOGIN_ATTEMPT_WINDOW", 5*time.Minute),
+			TrustProxyHeaders:  envBool("TRUST_PROXY_HEADERS", false),
+		},
 	}
 
 	var missing []string
@@ -79,11 +143,37 @@ func Load() (Config, error) {
 	if cfg.DB.Password == "" {
 		missing = append(missing, "DB_PASSWORD")
 	}
+	if cfg.Auth.JWTSecret == "" {
+		missing = append(missing, "JWT_SECRET")
+	}
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("必須の環境変数が設定されていない: %s", strings.Join(missing, ", "))
 	}
 
+	// 短い署名鍵は総当たりで復元されうる。HS256 の出力は 256 ビットなので、
+	// 鍵もそれ以上の強度を持たせる。
+	if len(cfg.Auth.JWTSecret) < minJWTSecretLength {
+		return Config{}, fmt.Errorf(
+			"JWT_SECRET が短すぎる: %d 文字（%d 文字以上が必要）",
+			len(cfg.Auth.JWTSecret), minJWTSecretLength)
+	}
+
 	return cfg, nil
+}
+
+// minJWTSecretLength は署名鍵に要求する最小の長さ。
+const minJWTSecretLength = 32
+
+func envBool(key string, fallback bool) bool {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
 }
 
 func envString(key, fallback string) string {

@@ -4,6 +4,127 @@
  */
 
 export interface paths {
+    "/auth/signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * アカウントの作成
+         * @description 作成と同時にログイン状態にする。アクセストークンを本文で返し、
+         *     リフレッシュトークンを Cookie に設定する。
+         *
+         *     **メールアドレスの確認は行わない。** メール送信を対象外にしているため、
+         *     存在しないアドレスでも登録できる（要件定義書 3.2 の割り切り）。
+         */
+        post: operations["signup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * ログイン
+         * @description **認証に失敗した理由を区別しない。** 「そのアドレスは登録されていない」と
+         *     「パスワードが違う」を分けて返すと、どのアドレスが登録済みかを
+         *     総当たりで調べられる。どちらも同じ `invalid_credentials` を返す。
+         */
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * アクセストークンの再発行
+         * @description Cookie のリフレッシュトークンから新しいアクセストークンを発行し、
+         *     **リフレッシュトークン自体もローテーションする**（新規発行＋旧失効）。
+         *
+         *     **失効済みトークンの再提示は盗用の兆候とみなし、そのユーザーの
+         *     全トークンを失効させる。** ただし正規のローテーション直後の短い猶予時間内は
+         *     例外とする。タブを複数開いた利用者の同時リフレッシュを
+         *     誤って盗用と判定し、正常な利用者をログアウトさせないためである。
+         *
+         *     このエンドポイントは Cookie で認証するため CSRF の対象になる。
+         *     `SameSite=Strict` に加えて `X-Requested-With: tabi-log` の付与を要求する。
+         */
+        post: operations["refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * ログアウト
+         * @description リフレッシュトークンを失効させ、Cookie を削除する。
+         *
+         *     **発行済みのアクセストークンは最大15分間有効なままである。**
+         *     取り消すにはリクエストごとに失効一覧を参照する必要があり、
+         *     JWT を使う意味が薄れるため行わない。仕様上の制約として受け入れている。
+         *
+         *     トークンが無い場合も 204 を返す（冪等）。
+         */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * ログイン中の利用者
+         * @description アクセストークンが指す利用者を返す。画面の初期化に使う。
+         */
+        get: operations["getMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/prefectures": {
         parameters: {
             query?: never;
@@ -97,6 +218,67 @@ export interface components {
                 message: string;
             };
         };
+        SignupRequest: {
+            /**
+             * @description メールアドレス。ログインIDとして使う
+             * @example traveler@example.com
+             */
+            email: string;
+            /**
+             * @description URL に使う識別子。英数字とアンダースコアのみ
+             * @example traveler_01
+             */
+            handle: string;
+            /** @example たびびと */
+            displayName: string;
+            /**
+             * Format: password
+             * @description 8文字以上。**上限を 72 にしているのは bcrypt の制約**である。
+             *     bcrypt は 72 バイトを超える入力を切り捨てるため、
+             *     それ以上を受け付けると「長いほど安全」という利用者の期待を裏切る。
+             */
+            password: string;
+        };
+        LoginRequest: {
+            /** @description メールアドレス */
+            email: string;
+            /** Format: password */
+            password: string;
+        };
+        AuthResponse: {
+            data: {
+                /**
+                 * @description JWT。`Authorization: Bearer <token>` で送る。
+                 *
+                 *     **クライアントはこれをメモリにのみ保持し、localStorage に
+                 *     保存しない。** 保存すると XSS で読み出せてしまう。
+                 *     リロード時は `/auth/refresh` から取り直す。
+                 */
+                accessToken: string;
+                /**
+                 * @description アクセストークンの残り有効秒数
+                 * @example 900
+                 */
+                expiresIn: number;
+                user: components["schemas"]["User"];
+            };
+        };
+        MeResponse: {
+            data: components["schemas"]["User"];
+        };
+        /** @description 公開してよい利用者情報のみを含む。メールアドレスは含めない */
+        User: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            id: number;
+            /** @example traveler_01 */
+            handle: string;
+            /** @example たびびと */
+            displayName: string;
+            bio?: string | null;
+        };
         Prefecture: {
             /**
              * @description JIS X 0401 の都道府県コード。`01`〜`47` の2桁（先頭のゼロを含む）
@@ -136,14 +318,243 @@ export interface components {
             };
         };
     };
-    responses: never;
-    parameters: never;
+    responses: {
+        /** @description 入力が要件を満たしていない */
+        ValidationError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description アクセストークンが無い、期限切れ、または不正である */
+        Unauthenticated: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description CSRF 対策のヘッダーが無い、または値が正しくない */
+        CsrfRejected: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description 試行回数の上限に達した */
+        RateLimited: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+    };
+    parameters: {
+        /**
+         * @description CSRF 対策。値は `tabi-log` 固定。
+         *
+         *     カスタムヘッダーは単純リクエストの条件を外れるため、
+         *     クロスオリジンから送るには CORS のプリフライトが通る必要がある。
+         *     フォーム送信や `<img>` のような**プリフライトを伴わない経路では付けられない**。
+         *     `SameSite=Strict` と合わせて二重に守る。
+         */
+        RequestedWith: "tabi-log";
+    };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /**
+         * @description リフレッシュトークンを設定する `Set-Cookie`。
+         *
+         *     `HttpOnly` `Secure` `SameSite=Strict` を付け、
+         *     **`Path=/api/auth` に限定する**。投稿や検索といった他の API リクエストには
+         *     一切乗らないため、Cookie が晒される面が小さくなる。
+         *
+         *     `/api/auth/refresh` まで絞らないのは、**ログアウトでも Cookie を読んで
+         *     サーバー側で失効させる必要がある**ためである。より狭い Path にすると
+         *     `/api/auth/logout` へ Cookie が送られず、ブラウザ側で消すことしかできない。
+         */
+        RefreshTokenCookie: string;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    signup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignupRequest"];
+            };
+        };
+        responses: {
+            /** @description 作成した */
+            201: {
+                headers: {
+                    "Set-Cookie": components["headers"]["RefreshTokenCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            /** @description メールアドレスかハンドルが既に使われている */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description ログインした */
+            200: {
+                headers: {
+                    "Set-Cookie": components["headers"]["RefreshTokenCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            /** @description メールアドレスかパスワードが正しくない */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    refresh: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description CSRF 対策。値は `tabi-log` 固定。
+                 *
+                 *     カスタムヘッダーは単純リクエストの条件を外れるため、
+                 *     クロスオリジンから送るには CORS のプリフライトが通る必要がある。
+                 *     フォーム送信や `<img>` のような**プリフライトを伴わない経路では付けられない**。
+                 *     `SameSite=Strict` と合わせて二重に守る。
+                 */
+                "X-Requested-With": components["parameters"]["RequestedWith"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 再発行した */
+            200: {
+                headers: {
+                    "Set-Cookie": components["headers"]["RefreshTokenCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /**
+             * @description リフレッシュトークンが無い・期限切れ・失効済みである。
+             *     `code` が `token_reuse_detected` の場合は盗用とみなして
+             *     全トークンを失効させており、再ログインが必要になる。
+             */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            403: components["responses"]["CsrfRejected"];
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description CSRF 対策。値は `tabi-log` 固定。
+                 *
+                 *     カスタムヘッダーは単純リクエストの条件を外れるため、
+                 *     クロスオリジンから送るには CORS のプリフライトが通る必要がある。
+                 *     フォーム送信や `<img>` のような**プリフライトを伴わない経路では付けられない**。
+                 *     `SameSite=Strict` と合わせて二重に守る。
+                 */
+                "X-Requested-With": components["parameters"]["RequestedWith"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ログアウトした（トークンが無い場合も含む） */
+            204: {
+                headers: {
+                    /** @description リフレッシュトークンを削除する `Set-Cookie` */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["CsrfRejected"];
+        };
+    };
+    getMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ログイン中の利用者 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
     listPrefectures: {
         parameters: {
             query?: never;
