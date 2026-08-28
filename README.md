@@ -98,6 +98,17 @@ docker compose run --rm migrate version     # 現在の版
 新しいマイグレーションは `backend/db/migrations/` に
 `000003_<内容>.up.sql` と `.down.sql` の対で追加します。**適用済みのファイルは変更しません。**
 
+> **シェルスクリプトを追加したときの注意（Windows）**
+> Git for Windows は既定で `core.fileMode=false` のため、`chmod +x` が
+> コミットに反映されません。実行権限が要るスクリプトは明示的に記録します。
+>
+> ```bash
+> git update-index --chmod=+x path/to/script.sh
+> ```
+>
+> これを忘れると、手元では動くのに CI で `Permission denied` になります
+> （LocalStack の初期化スクリプトで実際に踏みました）。
+
 ### 画像の扱い
 
 画像は**ブラウザから S3 へ直接送ります**（サーバーを経由しません）。
