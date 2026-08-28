@@ -86,11 +86,50 @@ func TestVerify_署名を改竄したら拒否する(t *testing.T) {
 	s := newTestService(t)
 	token, _, _ := s.Issue(1, time.Now())
 
-	// 署名部分の末尾1文字を変える。
-	tampered := token[:len(token)-1] + string(flipChar(token[len(token)-1]))
+	// **署名の先頭の文字を変える。**
+	//
+	// 末尾を変える書き方にしていたが、それでは検出できない場合がある。
+	// HS256 の署名は32バイトで、base64url にすると43文字になる。
+	// 43 文字は 258 ビットを表すが、実際に使うのは 256 ビットである。
+	// **最後の2ビットはデコード時に捨てられる**ため、末尾文字を
+	// A/B/C/D のどれに変えても署名バイト列は同一になる。
+	// 末尾を A<->B で入れ替える書き方では、末尾がその2文字のときだけ
+	// 改竄が成立せず、CI で確率的に落ちていた（実測で確認）。
+	//
+	// 先頭の文字は必ず最初のバイトに効くため、確実に検出できる。
+	i := strings.LastIndexByte(token, '.')
+	if i < 0 || i+1 >= len(token) {
+		t.Fatal("トークンの形が想定と違う")
+	}
+	tampered := token[:i+1] + string(flipChar(token[i+1])) + token[i+2:]
 
 	if _, err := s.Verify(tampered); !errors.Is(err, ErrTokenInvalid) {
 		t.Fatalf("期待 ErrTokenInvalid, 実際 %v", err)
+	}
+}
+
+// 上記の欠陥を再発させないための確認。
+// **改竄したトークンが元と違う値になっていること**を明示的に確かめる。
+func TestVerify_改竄の検証が空振りしていないこと(t *testing.T) {
+	s := newTestService(t)
+
+	// 何度か試し、どの署名でも改竄が検出されることを確かめる。
+	// jti が毎回変わるため署名も変わり、末尾依存の欠陥があれば
+	// どこかで空振りする。
+	for range 50 {
+		token, _, err := s.Issue(1, time.Now())
+		if err != nil {
+			t.Fatalf("発行に失敗した: %v", err)
+		}
+		i := strings.LastIndexByte(token, '.')
+		tampered := token[:i+1] + string(flipChar(token[i+1])) + token[i+2:]
+
+		if tampered == token {
+			t.Fatal("改竄後のトークンが元と同じである（テストが空振りしている）")
+		}
+		if _, err := s.Verify(tampered); !errors.Is(err, ErrTokenInvalid) {
+			t.Fatalf("改竄を検出できなかった: %v", err)
+		}
 	}
 }
 
