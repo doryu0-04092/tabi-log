@@ -75,3 +75,19 @@ SELECT v.media_id, v.kind, v.s3_key, v.width, v.height
 FROM media_variants v
 JOIN media m ON m.id = v.media_id
 WHERE m.post_id = ?;
+
+-- 複数の投稿の画像をまとめて取る。
+--
+-- **投稿ごとに問い合わせない（N+1 を作らない）。** フィードは1画面で
+-- 20件返すため、投稿ごとに画像を引くと 20 回の往復になる。
+-- name: ListMediaByPostIDs :many
+SELECT id, post_id, alt_text, width, height, s3_key
+FROM media
+WHERE post_id IN (sqlc.slice('post_ids'))
+ORDER BY post_id, sort_order, id;
+
+-- name: ListVariantsByPostIDs :many
+SELECT v.media_id, m.post_id, v.kind, v.s3_key, v.width, v.height
+FROM media_variants v
+JOIN media m ON m.id = v.media_id
+WHERE m.post_id IN (sqlc.slice('post_ids'));

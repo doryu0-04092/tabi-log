@@ -1,0 +1,161 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"github.com/doryu0-04092/tabi-log/backend/internal/domain"
+	"github.com/doryu0-04092/tabi-log/backend/internal/storage"
+	"github.com/doryu0-04092/tabi-log/backend/internal/store/dbgen"
+)
+
+// maxCursorID はカーソル未指定のときの起点。
+//
+// 「一番新しいものから」を「id が上限より小さいもの」として表す。
+// 先頭ページ専用のクエリを別に持つと、同じ SELECT を2つ保守することになる。
+const maxCursorID = ^uint64(0)
+
+// ListFeed は新着フィードを返す。
+//
+// nextCursor が空文字なら、それ以上の投稿は無い。
+func (s *PostStore) ListFeed(
+	ctx context.Context,
+	cursorID uint64,
+	limit int,
+	signer storage.URLSigner,
+	urlTTL time.Duration,
+) (posts []domain.Post, nextCursor uint64, err error) {
+	if cursorID == 0 {
+		cursorID = maxCursorID
+	}
+
+	// **1件多く取る。** 返す件数と同じだけ取ると「続きがあるか」が分からず、
+	// 次のページを取るまで判定できない。1件多く取って、あれば捨てる。
+	rows, err := s.q.ListPostsBefore(ctx, dbgen.ListPostsBeforeParams{
+		ID:    cursorID,
+		Limit: int32(limit + 1),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("フィードの取得に失敗した: %w", err)
+	}
+
+	hasMore := len(rows) > limit
+	if hasMore {
+		rows = rows[:limit]
+	}
+	if len(rows) == 0 {
+		return []domain.Post{}, 0, nil
+	}
+
+	postIDs := make([]uint64, 0, len(rows))
+	for _, r := range rows {
+		postIDs = append(postIDs, r.ID)
+	}
+
+	// **画像・変換物・タグをそれぞれ1クエリでまとめて取る。**
+	// 投稿ごとに引くと20件で20往復になる（N+1）。
+	mediaByPost, err := s.mediaByPost(ctx, postIDs, signer, urlTTL)
+	if err != nil {
+		return nil, 0, err
+	}
+	tagsByPost, err := s.tagsByPost(ctx, postIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	posts = make([]domain.Post, 0, len(rows))
+	for _, r := range rows {
+		posts = append(posts, domain.Post{
+			ID: r.ID,
+			Author: domain.User{
+				ID:          r.UserID,
+				Handle:      r.Handle,
+				DisplayName: r.DisplayName,
+				Bio:         nullStringToPtr(r.Bio),
+			},
+			Body: r.Body,
+			Prefecture: domain.Prefecture{
+				Code:     r.PrefectureCode,
+				Name:     r.PrefectureName,
+				NameKana: r.PrefectureNameKana,
+				Region:   r.Region,
+			},
+			SpotName:     nullStringToPtr(r.SpotName),
+			VisitedOn:    r.VisitedOn,
+			Media:        mediaByPost[r.ID],
+			Tags:         tagsByPost[r.ID],
+			LikeCount:    int(r.LikeCount),
+			CommentCount: int(r.CommentCount),
+			CreatedAt:    r.CreatedAt,
+			UpdatedAt:    r.UpdatedAt,
+		})
+	}
+
+	if hasMore {
+		nextCursor = rows[len(rows)-1].ID
+	}
+	return posts, nextCursor, nil
+}
+
+// mediaByPost は複数の投稿の画像を投稿IDごとにまとめて返す。
+func (s *PostStore) mediaByPost(
+	ctx context.Context,
+	postIDs []uint64,
+	signer storage.URLSigner,
+	urlTTL time.Duration,
+) (map[uint64][]domain.PostMedia, error) {
+	ids := make([]sql.NullInt64, 0, len(postIDs))
+	for _, id := range postIDs {
+		ids = append(ids, sql.NullInt64{Int64: int64(id), Valid: true})
+	}
+
+	mediaRows, err := s.q.ListMediaByPostIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("画像の取得に失敗した: %w", err)
+	}
+	variantRows, err := s.q.ListVariantsByPostIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("変換物の取得に失敗した: %w", err)
+	}
+
+	keysByMedia := make(map[uint64]map[string]string, len(mediaRows))
+	for _, v := range variantRows {
+		if keysByMedia[v.MediaID] == nil {
+			keysByMedia[v.MediaID] = map[string]string{}
+		}
+		keysByMedia[v.MediaID][string(v.Kind)] = v.S3Key
+	}
+
+	out := make(map[uint64][]domain.PostMedia, len(postIDs))
+	for _, m := range mediaRows {
+		thumb, medium, err := signVariants(ctx, signer, keysByMedia[m.ID], urlTTL)
+		if err != nil {
+			return nil, err
+		}
+		postID := uint64(m.PostID.Int64)
+		out[postID] = append(out[postID], domain.PostMedia{
+			ID:        m.ID,
+			AltText:   m.AltText.String,
+			Width:     int(m.Width.Int32),
+			Height:    int(m.Height.Int32),
+			ThumbURL:  thumb,
+			MediumURL: medium,
+		})
+	}
+	return out, nil
+}
+
+// tagsByPost は複数の投稿のタグを投稿IDごとにまとめて返す。
+func (s *PostStore) tagsByPost(ctx context.Context, postIDs []uint64) (map[uint64][]string, error) {
+	rows, err := s.q.ListTagsByPostIDs(ctx, postIDs)
+	if err != nil {
+		return nil, fmt.Errorf("タグの取得に失敗した: %w", err)
+	}
+	out := make(map[uint64][]string, len(postIDs))
+	for _, r := range rows {
+		out[r.PostID] = append(out[r.PostID], r.Name)
+	}
+	return out, nil
+}

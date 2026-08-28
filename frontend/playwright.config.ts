@@ -2,6 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
 	testDir: 'e2e',
+	// manual/ は見た目の確認用で合否を判定しないため、通常の実行から外す。
+	// 撮り直したいときは MANUAL=1 を付けて実行する。
+	testIgnore: process.env.MANUAL ? [] : ['**/manual/**'],
 	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 1 : 0,

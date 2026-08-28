@@ -106,6 +106,12 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      # 書式を明示して揃える。設定が無いと、実行する人ごとに
+      # タブとスペース・引用符が入れ替わり、意味の無い差分が出る。
+      - name: 書式
+        working-directory: frontend
+        run: npm run format:check
+
       - name: 単体テスト
         working-directory: frontend
         run: npm test

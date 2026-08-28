@@ -82,4 +82,4 @@
 	</button>
 </form>
 
-<p>アカウントをお持ちでない場合は <a href={resolve("/signup")}>新規登録</a> へ。</p>
+<p>アカウントをお持ちでない場合は <a href={resolve('/signup')}>新規登録</a> へ。</p>

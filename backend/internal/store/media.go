@@ -108,3 +108,19 @@ func (s *PostStore) FailMediaProcessing(ctx context.Context, mediaID uint64) err
 	}
 	return nil
 }
+
+// FindMediaByID は画像の記録を返す。
+//
+// 所有者の確認は呼び出し側で行う。ここで user_id を条件に入れて
+// 「見つからない」と返すこともできるが、**権限が無いのか存在しないのかを
+// 呼び出し側が区別できなくなる**ため、判定材料を返す形にしている。
+func (s *PostStore) FindMediaByID(ctx context.Context, mediaID uint64) (MediaRecord, error) {
+	row, err := s.q.GetMediaByID(ctx, mediaID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return MediaRecord{}, ErrMediaNotFound
+	}
+	if err != nil {
+		return MediaRecord{}, fmt.Errorf("画像の記録を取得できない: %w", err)
+	}
+	return MediaRecord{ID: row.ID, UserID: row.UserID, S3Key: row.S3Key, Status: string(row.Status)}, nil
+}

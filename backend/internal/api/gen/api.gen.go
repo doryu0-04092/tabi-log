@@ -6,6 +6,7 @@
 package gen
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -23,6 +24,30 @@ const (
 func (e LivezResponseDataStatus) Valid() bool {
 	switch e {
 	case LivezResponseDataStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MediaStatusResponseDataStatus.
+const (
+	Failed    MediaStatusResponseDataStatus = "failed"
+	Pending   MediaStatusResponseDataStatus = "pending"
+	Processed MediaStatusResponseDataStatus = "processed"
+	Uploaded  MediaStatusResponseDataStatus = "uploaded"
+)
+
+// Valid indicates whether the value is a known member of the MediaStatusResponseDataStatus enum.
+func (e MediaStatusResponseDataStatus) Valid() bool {
+	switch e {
+	case Failed:
+		return true
+	case Pending:
+		return true
+	case Processed:
+		return true
+	case Uploaded:
 		return true
 	default:
 		return false
@@ -258,6 +283,25 @@ type MediaAltText struct {
 	MediaId int64  `json:"mediaId"`
 }
 
+// MediaStatusResponse defines model for MediaStatusResponse.
+type MediaStatusResponse struct {
+	Data struct {
+		MediaId int64 `json:"mediaId"`
+
+		// Status `pending`   … 署名付きURLを発行したが、まだ届いていない
+		// `uploaded`  … 届いたが処理中
+		// `processed` … **投稿に使える**
+		// `failed`    … 画像として扱えなかった。投稿には使えない
+		Status MediaStatusResponseDataStatus `json:"status"`
+	} `json:"data"`
+}
+
+// MediaStatusResponseDataStatus `pending`   … 署名付きURLを発行したが、まだ届いていない
+// `uploaded`  … 届いたが処理中
+// `processed` … **投稿に使える**
+// `failed`    … 画像として扱えなかった。投稿には使えない
+type MediaStatusResponseDataStatus string
+
 // Post defines model for Post.
 type Post struct {
 	// Author 公開してよい利用者情報のみを含む。メールアドレスは含めない
@@ -273,6 +317,18 @@ type Post struct {
 	Tags         []string           `json:"tags"`
 	UpdatedAt    *time.Time         `json:"updatedAt,omitempty"`
 	VisitedOn    openapi_types.Date `json:"visitedOn"`
+}
+
+// PostListResponse defines model for PostListResponse.
+type PostListResponse struct {
+	Data struct {
+		// NextCursor 次のページを取るときに `cursor` として渡す。
+		// **これ以上無い場合は null になる。** 空文字ではなく null に
+		// しているのは、「続きがない」ことを呼び出し側が
+		// 真偽で判定できるようにするためである。
+		NextCursor *string `json:"nextCursor,omitempty"`
+		Posts      []Post  `json:"posts"`
+	} `json:"data"`
 }
 
 // PostMediaInput defines model for PostMediaInput.
@@ -467,6 +523,13 @@ type RefreshParams struct {
 // RefreshParamsXRequestedWith defines parameters for Refresh.
 type RefreshParamsXRequestedWith string
 
+// ListPostsParams defines parameters for ListPosts.
+type ListPostsParams struct {
+	// Cursor 前回の応答の `nextCursor`。省略すると先頭から返す
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -505,6 +568,12 @@ type ServerInterface interface {
 	// PresignMediaUpload 画像アップロード用の署名付きURLを発行する
 	// (POST /media/presign)
 	PresignMediaUpload(w http.ResponseWriter, r *http.Request)
+	// GetMediaStatus 画像の処理状況
+	// (GET /media/{mediaId})
+	GetMediaStatus(w http.ResponseWriter, r *http.Request, mediaId int64)
+	// ListPosts 新着フィード
+	// (GET /posts)
+	ListPosts(w http.ResponseWriter, r *http.Request, params ListPostsParams)
 	// CreatePost 投稿を作成する
 	// (POST /posts)
 	CreatePost(w http.ResponseWriter, r *http.Request)
@@ -685,6 +754,78 @@ func (siw *ServerInterfaceWrapper) PresignMediaUpload(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PresignMediaUpload(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMediaStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetMediaStatus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "mediaId" -------------
+	var mediaId int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "mediaId", r.PathValue("mediaId"), &mediaId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mediaId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMediaStatus(w, r, mediaId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPosts operation middleware
+func (siw *ServerInterfaceWrapper) ListPosts(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPostsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPosts(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -940,6 +1081,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/logout", wrapper.Logout)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/media/presign", wrapper.PresignMediaUpload)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/media/{mediaId}", wrapper.GetMediaStatus)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/posts", wrapper.ListPosts)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/posts", wrapper.CreatePost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/posts/{postId}", wrapper.DeletePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/posts/{postId}", wrapper.GetPost)

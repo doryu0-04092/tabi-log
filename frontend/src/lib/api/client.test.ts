@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-	ApiError,
-	NetworkError,
-	getAccessToken,
-	request,
-	setAccessToken
-} from './client';
+import { ApiError, NetworkError, getAccessToken, request, setAccessToken } from './client';
 
 function mockFetch(response: Response | Error) {
 	// 引数を明示的に受けておく。省略すると呼び出し記録の型が空タプルになり、
@@ -46,7 +40,10 @@ describe('request', () => {
 	it('エラー時は code と message を持つ ApiError を投げる', async () => {
 		mockFetch(
 			jsonResponse(503, {
-				error: { code: 'dependency_unavailable', message: 'データベースへ接続できません' }
+				error: {
+					code: 'dependency_unavailable',
+					message: 'データベースへ接続できません'
+				}
 			})
 		);
 
@@ -128,11 +125,15 @@ describe('アクセストークン', () => {
 		const fetchMock = vi.fn(async (input: string) => {
 			call++;
 			if (input === '/api/auth/refresh') {
-				return jsonResponse(200, { data: { accessToken: 'fresh-token', user: { id: 1 } } });
+				return jsonResponse(200, {
+					data: { accessToken: 'fresh-token', user: { id: 1 } }
+				});
 			}
 			// 1回目は 401、リフレッシュ後の2回目は成功。
 			return call === 1
-				? jsonResponse(401, { error: { code: 'token_expired', message: '期限切れ' } })
+				? jsonResponse(401, {
+						error: { code: 'token_expired', message: '期限切れ' }
+					})
 				: jsonResponse(200, { data: { ok: true } });
 		});
 		vi.stubGlobal('fetch', fetchMock);
@@ -154,11 +155,15 @@ describe('アクセストークン', () => {
 				refreshCalls++;
 				// 応答を1ティック遅らせ、同時実行の状況を作る。
 				await new Promise((r) => setTimeout(r, 10));
-				return jsonResponse(200, { data: { accessToken: 'fresh-token', user: { id: 1 } } });
+				return jsonResponse(200, {
+					data: { accessToken: 'fresh-token', user: { id: 1 } }
+				});
 			}
 			return getAccessToken() === 'fresh-token'
 				? jsonResponse(200, { data: { ok: true } })
-				: jsonResponse(401, { error: { code: 'token_expired', message: '期限切れ' } });
+				: jsonResponse(401, {
+						error: { code: 'token_expired', message: '期限切れ' }
+					});
 		});
 		vi.stubGlobal('fetch', fetchMock);
 
@@ -171,20 +176,29 @@ describe('アクセストークン', () => {
 		setAccessToken('stale-token');
 		const fetchMock = vi.fn(async (input: string) => {
 			if (input === '/api/auth/refresh') {
-				return jsonResponse(401, { error: { code: 'unauthenticated', message: '要ログイン' } });
+				return jsonResponse(401, {
+					error: { code: 'unauthenticated', message: '要ログイン' }
+				});
 			}
-			return jsonResponse(401, { error: { code: 'token_expired', message: '期限切れ' } });
+			return jsonResponse(401, {
+				error: { code: 'token_expired', message: '期限切れ' }
+			});
 		});
 		vi.stubGlobal('fetch', fetchMock);
 
-		await expect(request('/auth/me')).rejects.toMatchObject({ name: 'ApiError', status: 401 });
+		await expect(request('/auth/me')).rejects.toMatchObject({
+			name: 'ApiError',
+			status: 401
+		});
 		expect(getAccessToken()).toBeNull();
 	});
 
 	// リフレッシュ自体の 401 で再帰すると無限に呼び続ける。
 	it('リフレッシュ自身の401では再試行しない', async () => {
 		const fetchMock = mockFetch(
-			jsonResponse(401, { error: { code: 'unauthenticated', message: '要ログイン' } })
+			jsonResponse(401, {
+				error: { code: 'unauthenticated', message: '要ログイン' }
+			})
 		);
 
 		await expect(request('/auth/refresh', { method: 'POST', csrf: true })).rejects.toBeInstanceOf(

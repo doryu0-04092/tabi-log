@@ -18,3 +18,11 @@ FROM tags t
 JOIN post_tags pt ON pt.tag_id = t.id
 WHERE pt.post_id = ?
 ORDER BY t.name;
+
+-- 複数の投稿のタグをまとめて取る（N+1 を避けるため）。
+-- name: ListTagsByPostIDs :many
+SELECT pt.post_id, t.name
+FROM tags t
+JOIN post_tags pt ON pt.tag_id = t.id
+WHERE pt.post_id IN (sqlc.slice('post_ids'))
+ORDER BY pt.post_id, t.name;

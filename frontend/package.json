@@ -13,7 +13,9 @@
 		"lint": "eslint .",
 		"test": "vitest run",
 		"test:e2e": "playwright test",
-		"gen:api": "npx --yes openapi-typescript@7.13.0 ../docs/openapi.yaml -o src/lib/api/gen.ts"
+		"gen:api": "npx --yes openapi-typescript@7.13.0 ../docs/openapi.yaml -o src/lib/api/gen.ts",
+		"format": "prettier --write .",
+		"format:check": "prettier --check ."
 	},
 	"devDependencies": {
 		"@axe-core/playwright": "^4.13.0",
@@ -26,6 +28,8 @@
 		"eslint-plugin-svelte": "^3.23.0",
 		"globals": "^17.11.0",
 		"jsdom": "^30.0.1",
+		"prettier": "^3.9.6",
+		"prettier-plugin-svelte": "^4.1.1",
 		"svelte": "^5.56.1",
 		"svelte-check": "^4.6.0",
 		"svelte-eslint-parser": "^1.8.1",

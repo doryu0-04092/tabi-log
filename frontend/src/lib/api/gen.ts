@@ -159,6 +159,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/media/{mediaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 画像の処理状況
+         * @description アップロードした画像の処理が終わったかを返す。
+         *
+         *     **S3 への送信が終わっても、すぐには投稿に使えない。** 形式の検証・
+         *     EXIF の除去・表示用の変換が終わって `processed` になる必要がある。
+         *     その処理は S3 のイベントで非同期に走るため、**クライアントは
+         *     完了を知る手段を持たない**。この経路がその手段になる。
+         *
+         *     これが無いと、画面は「送信が終わった」時点で投稿できると誤解し、
+         *     サーバーに拒否されて初めて分かることになる。
+         *
+         *     自分がアップロードした画像のみ参照できる。
+         */
+        get: operations["getMediaStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/posts": {
         parameters: {
             query?: never;
@@ -166,7 +196,20 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * 新着フィード
+         * @description 全利用者の投稿を投稿日の新しい順に返す。
+         *
+         *     **カーソルページネーションを使う。** `OFFSET` は深いページで
+         *     件数分を読み飛ばすため劣化する。前回の最後の投稿を指す `cursor` を
+         *     渡すと、その続きから返す。
+         *
+         *     並び順は**投稿日**であり訪問日ではない。旅行から帰ったあとに
+         *     まとめて投稿するのが自然な使われ方であり、フィードは
+         *     「新しく共有されたもの」を見せる場だからである。
+         *     訪問日順で見せるのはプロフィールの旅行履歴の役割になる。
+         */
+        get: operations["listPosts"];
         put?: never;
         /**
          * 投稿を作成する
@@ -442,8 +485,34 @@ export interface components {
             mediaId: number;
             altText: string;
         };
+        MediaStatusResponse: {
+            data: {
+                /** Format: int64 */
+                mediaId: number;
+                /**
+                 * @description `pending`   … 署名付きURLを発行したが、まだ届いていない
+                 *     `uploaded`  … 届いたが処理中
+                 *     `processed` … **投稿に使える**
+                 *     `failed`    … 画像として扱えなかった。投稿には使えない
+                 * @enum {string}
+                 */
+                status: "pending" | "uploaded" | "processed" | "failed";
+            };
+        };
         PostResponse: {
             data: components["schemas"]["Post"];
+        };
+        PostListResponse: {
+            data: {
+                posts: components["schemas"]["Post"][];
+                /**
+                 * @description 次のページを取るときに `cursor` として渡す。
+                 *     **これ以上無い場合は null になる。** 空文字ではなく null に
+                 *     しているのは、「続きがない」ことを呼び出し側が
+                 *     真偽で判定できるようにするためである。
+                 */
+                nextCursor?: string | null;
+            };
         };
         Post: {
             /** Format: int64 */
@@ -792,6 +861,56 @@ export interface operations {
                 };
             };
             400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    getMediaStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mediaId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 処理状況 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaStatusResponse"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listPosts: {
+        parameters: {
+            query?: {
+                /** @description 前回の応答の `nextCursor`。省略すると先頭から返す */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 投稿の一覧 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostListResponse"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
         };
     };
