@@ -4,6 +4,33 @@
  */
 
 export interface paths {
+    "/prefectures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 都道府県マスタの一覧
+         * @description 47件を JIS X 0401 のコード順で返す。投稿フォームの選択肢と、
+         *     都道府県制覇マップの土台に使う。
+         *
+         *     **認証を要さない。** 総務省が定める公開情報であり、
+         *     利用者ごとに内容が変わらないためである。
+         *     （アプリの他の画面は認証を要する。[要件定義書](requirements.md) 2 章）
+         *
+         *     内容は不変なので、クライアントは長期間キャッシュしてよい。
+         */
+        get: operations["listPrefectures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/livez": {
         parameters: {
             query?: never;
@@ -70,6 +97,30 @@ export interface components {
                 message: string;
             };
         };
+        Prefecture: {
+            /**
+             * @description JIS X 0401 の都道府県コード。`01`〜`47` の2桁（先頭のゼロを含む）
+             * @example 01
+             */
+            code: string;
+            /** @example 北海道 */
+            name: string;
+            /**
+             * @description 読み。並べ替えと検索の補助に使う
+             * @example ほっかいどう
+             */
+            nameKana: string;
+            /**
+             * @description 八地方区分。「関東の投稿」のような粒度での絞り込みに使う
+             * @example 北海道
+             * @enum {string}
+             */
+            region: "北海道" | "東北" | "関東" | "中部" | "近畿" | "中国" | "四国" | "九州沖縄";
+        };
+        PrefectureListResponse: {
+            /** @description JIS コード順に並んだ47件 */
+            data: components["schemas"]["Prefecture"][];
+        };
         LivezResponse: {
             data: {
                 /** @enum {string} */
@@ -93,6 +144,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listPrefectures: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 47件の都道府県 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrefectureListResponse"];
+                };
+            };
+        };
+    };
     getLivez: {
         parameters: {
             query?: never;

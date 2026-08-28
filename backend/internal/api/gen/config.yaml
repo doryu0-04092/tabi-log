@@ -15,7 +15,7 @@
 # 生成（backend ディレクトリで実行）:
 #   go generate ./...
 package: gen
-output: internal/api/gen/api.gen.go
+output: gen/api.gen.go
 generate:
   models: true
   std-http-server: true

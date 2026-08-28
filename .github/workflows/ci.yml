@@ -117,9 +117,11 @@ jobs:
   codegen:
     name: 生成物の一致検証
     runs-on: ubuntu-latest
-    # 仕様（docs/openapi.yaml）を変えたのに再生成を忘れる、という食い違いを
-    # 機械的に止める。「生成できたこと」を「内容が正しいこと」の根拠にしない
-    # ための仕組み側の担保である。
+    # 仕様（docs/openapi.yaml）やスキーマ（db/migrations）を変えたのに
+    # 再生成を忘れる、という食い違いを機械的に止める。
+    # 「生成できたこと」を「内容が正しいこと」の根拠にしないための担保である。
+    #
+    # go generate は oapi-codegen（API の型）と sqlc（DB の型）の両方を回す。
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -130,7 +132,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Go の型を再生成
+      - name: Go の型を再生成（oapi-codegen と sqlc）
         working-directory: backend
         run: go generate ./...
 
@@ -138,12 +140,24 @@ jobs:
         working-directory: frontend
         run: npm run gen:api
 
-      - name: 差分が無いこと
+      # git diff ではなく git status --porcelain で見る。
+      #
+      # git diff は追跡済みファイルの変更しか見ないため、**生成物が誤った場所に
+      # 出力された場合を検出できない**。実際にこの構成で、go generate の
+      # 作業ディレクトリの取り違えにより生成物が別のパスへ出力され、
+      # 本物の生成物が古いまま残る事象を起こしている。
+      # 未追跡ファイルも失敗として扱う。
+      - name: 生成物が入力と一致していること
         run: |
-          if ! git diff --exit-code; then
-            echo "::error::生成物が docs/openapi.yaml と一致していません。再生成してコミットしてください。"
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::生成物が仕様・スキーマと一致していません。再生成してコミットしてください。"
+            echo "--- git status ---"
+            git status --porcelain
+            echo "--- git diff ---"
+            git diff
             exit 1
           fi
+          echo "生成物は入力と一致している"
 
   e2e:
     name: E2E とアクセシビリティ検査

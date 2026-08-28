@@ -33,12 +33,15 @@ var _ gen.ServerInterface = (*server)(nil)
 // 機能を追加するときはここに埋め込みを足す。
 type server struct {
 	*healthHandler
+	*prefectureHandler
 }
 
 // Deps はルーターの構築に必要な依存をまとめる。
 type Deps struct {
-	DB     Pinger
-	Logger *slog.Logger
+	// DB は疎通確認にのみ使う。データの読み書きは各 store が担う。
+	DB          Pinger
+	Prefectures PrefectureLister
+	Logger      *slog.Logger
 }
 
 // NewRouter は全エンドポイントを登録した http.Handler を返す。
@@ -61,7 +64,8 @@ func NewRouter(deps Deps) http.Handler {
 	})
 
 	srv := &server{
-		healthHandler: &healthHandler{db: deps.DB, logger: deps.Logger},
+		healthHandler:     &healthHandler{db: deps.DB, logger: deps.Logger},
+		prefectureHandler: &prefectureHandler{store: deps.Prefectures, logger: deps.Logger},
 	}
 	gen.HandlerFromMuxWithBaseURL(srv, mux, apiBasePath)
 

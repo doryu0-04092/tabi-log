@@ -88,15 +88,31 @@ docker compose run --rm migrate version     # 現在の版
 新しいマイグレーションは `backend/db/migrations/` に
 `000003_<内容>.up.sql` と `.down.sql` の対で追加します。**適用済みのファイルは変更しません。**
 
-### コード生成（spec-first）
+### コード生成
 
-API の型は `docs/openapi.yaml` から生成します。**逆向きではありません。**
-仕様を変更したら再生成してコミットしてください。CI が差分の有無を検証します。
+このプロジェクトには生成物が2系統あります。**どちらも「自分で書いたものが正」で、
+そこからコードを作ります。逆向きではありません。**
+
+| 入力（正） | 生成物 | ツール |
+|---|---|---|
+| `docs/openapi.yaml` | `backend/internal/api/gen/`（Go の型と ServerInterface）<br>`frontend/src/lib/api/gen.ts`（TypeScript の型） | oapi-codegen / openapi-typescript |
+| `backend/db/migrations/` ＋ `backend/db/queries/` | `backend/internal/store/dbgen/`（型安全な DB アクセス関数） | sqlc |
 
 ```bash
-cd backend  && go generate ./...   # -> internal/api/gen/api.gen.go
-cd frontend && npm run gen:api     # -> src/lib/api/gen.ts
+cd backend  && go generate ./...   # oapi-codegen と sqlc の両方
+cd frontend && npm run gen:api
 ```
+
+**生成物は直接編集しません。** 入力を変えて再生成し、コミットしてください。
+CI が再生成して**未追跡ファイルを含めて**差分の有無を検証します。
+
+新しいクエリを追加するときは `backend/db/queries/*.sql` に SQL を書き、
+`-- name: 関数名 :one|:many|:exec` の注釈を付けて再生成します。
+
+> **sqlc が扱えないもの**: 条件が実行時に増減する検索クエリ（都道府県で絞る／絞らない、
+> タグで絞る／絞らない の組み合わせ）は、SQL 文自体が変化するため生成できません。
+> 検索リポジトリだけは `database/sql` で手書きします。その際、値は必ず
+> プレースホルダにバインドし、ユーザー入力を SQL 文字列に連結しません。
 
 ### テスト
 
@@ -140,7 +156,8 @@ docker compose start mysql
 - ヘルスチェック（`/api/livez` / `/api/readyz`）と、その分離の検証
 - 全テーブルのスキーマと都道府県マスタ47件
 - 日本語の全文検索（MySQL の ngram パーサ）
-- OpenAPI 仕様からの Go / TypeScript 型生成
+- `GET /api/prefectures` — 47件を JIS コード順で返す
+- 生成の仕組み2系統（OpenAPI からの型生成 / sqlc による DB アクセス生成）
 - CI（型検査・lint・単体・E2E・アクセシビリティ・脆弱性検査・生成物の一致検証）
 
 機能の実装（認証・投稿・反応・フィード・発見・通知）と AWS へのデプロイはこれからです。

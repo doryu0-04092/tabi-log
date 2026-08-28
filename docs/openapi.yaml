@@ -26,8 +26,32 @@ servers:
 tags:
   - name: health
     description: 稼働確認
+  - name: master
+    description: マスタデータ
 
 paths:
+  /prefectures:
+    get:
+      tags: [master]
+      operationId: listPrefectures
+      summary: 都道府県マスタの一覧
+      description: |
+        47件を JIS X 0401 のコード順で返す。投稿フォームの選択肢と、
+        都道府県制覇マップの土台に使う。
+
+        **認証を要さない。** 総務省が定める公開情報であり、
+        利用者ごとに内容が変わらないためである。
+        （アプリの他の画面は認証を要する。[要件定義書](requirements.md) 2 章）
+
+        内容は不変なので、クライアントは長期間キャッシュしてよい。
+      security: []
+      responses:
+        '200':
+          description: 47件の都道府県
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefectureListResponse'
   /livez:
     get:
       tags: [health]
@@ -114,6 +138,45 @@ components:
               type: string
               description: 利用者に表示する説明。内部構造やスタックは含めない。
               example: データベースへ接続できません
+
+    Prefecture:
+      type: object
+      required: [code, name, nameKana, region]
+      properties:
+        code:
+          type: string
+          description: JIS X 0401 の都道府県コード。`01`〜`47` の2桁（先頭のゼロを含む）
+          pattern: '^[0-4][0-9]$'
+          example: '01'
+        name:
+          type: string
+          example: 北海道
+        nameKana:
+          type: string
+          description: 読み。並べ替えと検索の補助に使う
+          example: ほっかいどう
+        region:
+          type: string
+          description: 八地方区分。「関東の投稿」のような粒度での絞り込みに使う
+          enum: [北海道, 東北, 関東, 中部, 近畿, 中国, 四国, 九州沖縄]
+          # コード生成器は日本語の列挙値から識別子を作れず、
+          # Empty / N1 / N2 ... という無意味な定数名を出す（Empty が「北海道」になる）。
+          # x-enum-varnames で明示的に名前を与える。
+          x-enum-varnames:
+            [Hokkaido, Tohoku, Kanto, Chubu, Kinki, Chugoku, Shikoku, KyushuOkinawa]
+          example: 北海道
+
+    PrefectureListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          description: JIS コード順に並んだ47件
+          minItems: 47
+          maxItems: 47
+          items:
+            $ref: '#/components/schemas/Prefecture'
 
     LivezResponse:
       type: object
