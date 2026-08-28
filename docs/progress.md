@@ -114,15 +114,16 @@ Dependabot の PR 7件は処理した。未処理の PR は無い。
 
 - **6件はマージ済み** — Actions のメジャー更新（checkout/setup-go/setup-node/
   upload-artifact/golangci-lint-action）と alpine 3.22→3.24
-- **TypeScript 6→7 は閉じた。** `svelte-check@4.7.6` の peer 指定が
-  `^5.0.0 || ^6.0.0` までで 7 を許容せず、`npm ci` の時点で落ちる。
-  回避策は2つあるがどちらも採らない:
-  - `--legacy-peer-deps` で押し通す → **壊れた依存解決を受け入れることになり
-    型検査が信用できなくなる**
-  - `svelte-check` を外す → **a11y 警告を CI でエラー扱いにする仕組みが消える**
-    （アクセシビリティ重点の方針の要）
+- **TypeScript 7 は対応構成で導入済み。** Dependabot の PR（typescript を
+  7 に置き換えるだけ）は形が違ったため閉じ、`svelte-check` が案内する構成に
+  した:
 
-  `svelte-check` が TS 7 に対応すれば Dependabot が再び上げてくる。それを待つ。
+      typescript@~6  +  @typescript/native（typescript@7 の別名）
+      svelte-check に --tsgo を渡す
+
+  TS 7 の検査器は Go で書き直された実装（tsgo）で、classic API とは別物のため
+  両方が必要になる。**型エラーと a11y 警告を従来と同一に検出することを
+  実測で確認した**（ルートファイルを含む）。
 
 ### 実装の穴（気づいているが未対応）
 
