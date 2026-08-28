@@ -16,6 +16,7 @@ import (
 	"github.com/doryu0-04092/tabi-log/backend/internal/auth"
 	"github.com/doryu0-04092/tabi-log/backend/internal/config"
 	"github.com/doryu0-04092/tabi-log/backend/internal/httpapi"
+	"github.com/doryu0-04092/tabi-log/backend/internal/storage"
 	"github.com/doryu0-04092/tabi-log/backend/internal/store"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -59,10 +60,22 @@ func run() error {
 		return fmt.Errorf("トークンサービスを初期化できない: %w", err)
 	}
 
+	objectStorage, err := storage.NewS3Storage(ctx, storage.S3Config{
+		Bucket:         cfg.Storage.Bucket,
+		Region:         cfg.Storage.Region,
+		Endpoint:       cfg.Storage.Endpoint,
+		PublicEndpoint: cfg.Storage.PublicEndpoint,
+	})
+	if err != nil {
+		return fmt.Errorf("画像の保存先を初期化できない: %w", err)
+	}
+
 	handler := httpapi.NewRouter(httpapi.Deps{
 		DB:            db,
 		Prefectures:   store.NewPrefectureStore(db),
 		Auth:          store.NewAuthStore(db),
+		Posts:         store.NewPostStore(db),
+		Storage:       objectStorage,
 		TokenIssuer:   tokens,
 		TokenVerifier: tokens,
 		AuthOptions: httpapi.AuthOptions{

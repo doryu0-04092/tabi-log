@@ -173,7 +173,17 @@ jobs:
       - name: 環境変数を用意する
         run: cp .env.example .env
 
-      - name: MySQL とバックエンドを起動する
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      # LocalStack の初期化スクリプトがこの zip を読み込んで Lambda を作る。
+      # compose を起動する前に用意しておく必要がある。
+      - name: 画像処理 Lambda をビルドする
+        run: bash docker/build-imageworker.sh
+
+      - name: MySQL・LocalStack・バックエンドを起動する
         run: docker compose up -d --build
 
       # マイグレーションは起動時に自動適用しない方針のため、明示的に実行する。
@@ -184,6 +194,15 @@ jobs:
         run: |
           curl --fail --retry 10 --retry-delay 3 --retry-all-errors http://localhost:8080/api/livez
           curl --fail --retry 10 --retry-delay 3 --retry-all-errors http://localhost:8080/api/readyz
+
+      # 画像の検証・EXIF除去・変換はこの Lambda が担う。
+      # 登録されていないと、画像が processed にならず投稿が一切作れない。
+      - name: 画像処理 Lambda が登録されていること
+        run: |
+          state=$(docker compose exec -T localstack awslocal lambda get-function \
+            --function-name tabilog-imageworker --query Configuration.State --output text | tr -d '\r')
+          echo "state=$state"
+          test "$state" = "Active"
 
       - name: 都道府県マスタが47件あること
         run: |

@@ -36,10 +36,23 @@ services:
     image: localstack/localstack:4
     container_name: tabilog-localstack
     environment:
-      SERVICES: s3
+      SERVICES: s3,lambda
       DEBUG: "0"
+      # Lambda コンテナを LocalStack と同じネットワークに置く。
+      # これが無いと Lambda から mysql / localstack のホスト名を解決できない。
+      LAMBDA_DOCKER_NETWORK: tabi-log_default
+      STORAGE_S3_BUCKET: ${STORAGE_S3_BUCKET:-tabilog-media}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
     ports:
       - "4566:4566"
+    volumes:
+      # ready.d のスクリプトは LocalStack の起動完了後に実行される。
+      - ./docker/localstack-init:/etc/localstack/init/ready.d:ro
+      - ./docker/artifacts:/etc/localstack/artifacts:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
       interval: 5s
@@ -65,10 +78,21 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
       LOGIN_ATTEMPT_LIMIT: ${LOGIN_ATTEMPT_LIMIT:-10}
+      STORAGE_S3_BUCKET: ${STORAGE_S3_BUCKET:-tabilog-media}
+      STORAGE_S3_REGION: ap-northeast-1
+      STORAGE_S3_ENDPOINT: http://localstack:4566
+      # 署名付きURLはホスト側のブラウザが使うため、到達できるアドレスで署名する
+      STORAGE_S3_PUBLIC_ENDPOINT: http://localhost:4566
+      # LocalStack は任意の値を受け付ける。実際の AWS では
+      # ECS のタスクロールが使われるため、この2つは設定しない。
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
     ports:
       - "8080:8080"
     depends_on:
       mysql:
+        condition: service_healthy
+      localstack:
         condition: service_healthy
 
   # マイグレーション適用用の使い捨てコンテナ。

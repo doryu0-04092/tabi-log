@@ -20,8 +20,27 @@ type Config struct {
 	LogLevel        string // debug / info / warn / error
 	ShutdownTimeout time.Duration
 
-	DB   DBConfig
-	Auth AuthConfig
+	DB      DBConfig
+	Auth    AuthConfig
+	Storage StorageConfig
+}
+
+// StorageConfig は画像の保存先の設定を表す。
+type StorageConfig struct {
+	Bucket string
+	Region string
+
+	// Endpoint は LocalStack を使うときだけ設定する。
+	//
+	// **既定を空にしているのが要点である。** 前回プロジェクトでは既定値が
+	// ローカル向けのアドレスになっており、本番のタスク定義で空文字を渡し忘れると
+	// 到達できないアドレスへ接続しに行って起動に失敗する罠になっていた。
+	// 既定を「実際の S3」にしておけば、設定漏れは安全側に倒れる。
+	Endpoint string
+
+	// PublicEndpoint は署名付き URL に使うアドレス。ローカルのみ設定する。
+	// 詳細は storage.S3Config を参照。
+	PublicEndpoint string
 }
 
 // AuthConfig は認証まわりの設定を表す。
@@ -134,6 +153,12 @@ func Load() (Config, error) {
 			LoginAttemptWindow: envDuration("LOGIN_ATTEMPT_WINDOW", 5*time.Minute),
 			TrustProxyHeaders:  envBool("TRUST_PROXY_HEADERS", false),
 		},
+		Storage: StorageConfig{
+			Bucket:         envString("STORAGE_S3_BUCKET", ""),
+			Region:         envString("STORAGE_S3_REGION", "ap-northeast-1"),
+			Endpoint:       envString("STORAGE_S3_ENDPOINT", ""),
+			PublicEndpoint: envString("STORAGE_S3_PUBLIC_ENDPOINT", ""),
+		},
 	}
 
 	var missing []string
@@ -145,6 +170,9 @@ func Load() (Config, error) {
 	}
 	if cfg.Auth.JWTSecret == "" {
 		missing = append(missing, "JWT_SECRET")
+	}
+	if cfg.Storage.Bucket == "" {
+		missing = append(missing, "STORAGE_S3_BUCKET")
 	}
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("必須の環境変数が設定されていない: %s", strings.Join(missing, ", "))

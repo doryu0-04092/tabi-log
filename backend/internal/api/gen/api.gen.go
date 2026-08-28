@@ -8,8 +8,10 @@ package gen
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for LivezResponseDataStatus.
@@ -57,6 +59,27 @@ func (e PrefectureRegion) Valid() bool {
 	case Shikoku:
 		return true
 	case Tohoku:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PresignRequestContentType.
+const (
+	Imagejpeg PresignRequestContentType = "image/jpeg"
+	Imagepng  PresignRequestContentType = "image/png"
+	Imagewebp PresignRequestContentType = "image/webp"
+)
+
+// Valid indicates whether the value is a known member of the PresignRequestContentType enum.
+func (e PresignRequestContentType) Valid() bool {
+	switch e {
+	case Imagejpeg:
+		return true
+	case Imagepng:
+		return true
+	case Imagewebp:
 		return true
 	default:
 		return false
@@ -158,6 +181,23 @@ type AuthResponse struct {
 	} `json:"data"`
 }
 
+// CreatePostRequest defines model for CreatePostRequest.
+type CreatePostRequest struct {
+	Body  string           `json:"body"`
+	Media []PostMediaInput `json:"media"`
+
+	// PrefectureCode JIS X 0401 の都道府県コード。**必須**。自由入力は受け付けない
+	PrefectureCode string `json:"prefectureCode"`
+
+	// SpotName 「道の駅○○」など。全文検索の対象に含める
+	SpotName *string   `json:"spotName,omitempty"`
+	Tags     *[]string `json:"tags,omitempty"`
+
+	// VisitedOn 訪問日。**投稿日とは別の軸である。** 旅行から帰ったあとに
+	// まとめて投稿するのが自然な使われ方のため。未来日は受け付けない。
+	VisitedOn openapi_types.Date `json:"visitedOn"`
+}
+
 // ErrorResponse defines model for ErrorResponse.
 type ErrorResponse struct {
 	Error struct {
@@ -198,6 +238,56 @@ type MeResponse struct {
 	Data User `json:"data"`
 }
 
+// Media defines model for Media.
+type Media struct {
+	AltText string `json:"altText"`
+	Height  int    `json:"height"`
+	Id      int64  `json:"id"`
+
+	// MediumUrl 長辺1080px。詳細で使う
+	MediumUrl string `json:"mediumUrl"`
+
+	// ThumbUrl 長辺320px。一覧で使う
+	ThumbUrl string `json:"thumbUrl"`
+	Width    int    `json:"width"`
+}
+
+// MediaAltText defines model for MediaAltText.
+type MediaAltText struct {
+	AltText string `json:"altText"`
+	MediaId int64  `json:"mediaId"`
+}
+
+// Post defines model for Post.
+type Post struct {
+	// Author 公開してよい利用者情報のみを含む。メールアドレスは含めない
+	Author       User               `json:"author"`
+	Body         string             `json:"body"`
+	CommentCount int                `json:"commentCount"`
+	CreatedAt    time.Time          `json:"createdAt"`
+	Id           int64              `json:"id"`
+	LikeCount    int                `json:"likeCount"`
+	Media        []Media            `json:"media"`
+	Prefecture   Prefecture         `json:"prefecture"`
+	SpotName     *string            `json:"spotName,omitempty"`
+	Tags         []string           `json:"tags"`
+	UpdatedAt    *time.Time         `json:"updatedAt,omitempty"`
+	VisitedOn    openapi_types.Date `json:"visitedOn"`
+}
+
+// PostMediaInput defines model for PostMediaInput.
+type PostMediaInput struct {
+	// AltText **必須。** 写真が主役のサービスで代替テキストを任意にすると
+	// 実質的に入力されず、画像が見えない利用者に何も伝わらなくなる。
+	AltText string `json:"altText"`
+	MediaId int64  `json:"mediaId"`
+}
+
+// PostResponse defines model for PostResponse.
+type PostResponse struct {
+	Data Post `json:"data"`
+}
+
 // Prefecture defines model for Prefecture.
 type Prefecture struct {
 	// Code JIS X 0401 の都道府県コード。`01`〜`47` の2桁（先頭のゼロを含む）
@@ -228,6 +318,40 @@ type PrefectureRegion string
 type PrefectureListResponse struct {
 	// Data JIS コード順に並んだ47件
 	Data []Prefecture `json:"data"`
+}
+
+// PresignRequest defines model for PresignRequest.
+type PresignRequest struct {
+	// ContentLength バイト数。上限も署名に焼き込まれる
+	ContentLength int64 `json:"contentLength"`
+
+	// ContentType 画像の種類。**この値は署名に焼き込まれる**ため、
+	// 異なる種類でアップロードすると S3 が拒否する。
+	//
+	// ただし申告値を信用はしない。アップロード後に
+	// マジックバイトで実際の形式を検証する。
+	ContentType PresignRequestContentType `json:"contentType"`
+}
+
+// PresignRequestContentType 画像の種類。**この値は署名に焼き込まれる**ため、
+// 異なる種類でアップロードすると S3 が拒否する。
+//
+// ただし申告値を信用はしない。アップロード後に
+// マジックバイトで実際の形式を検証する。
+type PresignRequestContentType string
+
+// PresignResponse defines model for PresignResponse.
+type PresignResponse struct {
+	Data struct {
+		// ExpiresIn 署名の有効秒数
+		ExpiresIn int `json:"expiresIn"`
+
+		// MediaId 投稿を作成するときにこの ID を指定する
+		MediaId int64 `json:"mediaId"`
+
+		// UploadUrl この URL へ PUT する。**サーバーを経由しない**
+		UploadUrl string `json:"uploadUrl"`
+	} `json:"data"`
 }
 
 // ReadyzResponse defines model for ReadyzResponse.
@@ -265,6 +389,18 @@ type SignupRequest struct {
 	Password string `json:"password"`
 }
 
+// UpdatePostRequest 画像の差し替えはできない。代替テキストのみ変更できる
+type UpdatePostRequest struct {
+	Body string `json:"body"`
+
+	// MediaAltTexts 既にこの投稿に紐づいている画像の代替テキスト
+	MediaAltTexts  []MediaAltText     `json:"mediaAltTexts"`
+	PrefectureCode string             `json:"prefectureCode"`
+	SpotName       *string            `json:"spotName,omitempty"`
+	Tags           *[]string          `json:"tags,omitempty"`
+	VisitedOn      openapi_types.Date `json:"visitedOn"`
+}
+
 // User 公開してよい利用者情報のみを含む。メールアドレスは含めない
 type User struct {
 	Bio *string `json:"bio,omitempty"`
@@ -279,11 +415,20 @@ type User struct {
 	Id int64 `json:"id"`
 }
 
+// PostId defines model for PostId.
+type PostId = int64
+
 // RequestedWith defines model for RequestedWith.
 type RequestedWith string
 
 // CsrfRejected defines model for CsrfRejected.
 type CsrfRejected = ErrorResponse
+
+// Forbidden defines model for Forbidden.
+type Forbidden = ErrorResponse
+
+// NotFound defines model for NotFound.
+type NotFound = ErrorResponse
 
 // RateLimited defines model for RateLimited.
 type RateLimited = ErrorResponse
@@ -328,6 +473,15 @@ type LoginJSONRequestBody = LoginRequest
 // SignupJSONRequestBody defines body for Signup for application/json ContentType.
 type SignupJSONRequestBody = SignupRequest
 
+// PresignMediaUploadJSONRequestBody defines body for PresignMediaUpload for application/json ContentType.
+type PresignMediaUploadJSONRequestBody = PresignRequest
+
+// CreatePostJSONRequestBody defines body for CreatePost for application/json ContentType.
+type CreatePostJSONRequestBody = CreatePostRequest
+
+// UpdatePostJSONRequestBody defines body for UpdatePost for application/json ContentType.
+type UpdatePostJSONRequestBody = UpdatePostRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// Login ログイン
@@ -348,6 +502,21 @@ type ServerInterface interface {
 	// GetLivez プロセスの生存確認
 	// (GET /livez)
 	GetLivez(w http.ResponseWriter, r *http.Request)
+	// PresignMediaUpload 画像アップロード用の署名付きURLを発行する
+	// (POST /media/presign)
+	PresignMediaUpload(w http.ResponseWriter, r *http.Request)
+	// CreatePost 投稿を作成する
+	// (POST /posts)
+	CreatePost(w http.ResponseWriter, r *http.Request)
+	// DeletePost 投稿を削除する
+	// (DELETE /posts/{postId})
+	DeletePost(w http.ResponseWriter, r *http.Request, postId PostId)
+	// GetPost 投稿を取得する
+	// (GET /posts/{postId})
+	GetPost(w http.ResponseWriter, r *http.Request, postId PostId)
+	// UpdatePost 投稿を編集する
+	// (PATCH /posts/{postId})
+	UpdatePost(w http.ResponseWriter, r *http.Request, postId PostId)
 	// ListPrefectures 都道府県マスタの一覧
 	// (GET /prefectures)
 	ListPrefectures(w http.ResponseWriter, r *http.Request)
@@ -511,6 +680,112 @@ func (siw *ServerInterfaceWrapper) GetLivez(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// PresignMediaUpload operation middleware
+func (siw *ServerInterfaceWrapper) PresignMediaUpload(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PresignMediaUpload(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePost operation middleware
+func (siw *ServerInterfaceWrapper) CreatePost(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePost(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeletePost operation middleware
+func (siw *ServerInterfaceWrapper) DeletePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "postId" -------------
+	var postId PostId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "postId", r.PathValue("postId"), &postId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "postId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePost(w, r, postId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPost operation middleware
+func (siw *ServerInterfaceWrapper) GetPost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "postId" -------------
+	var postId PostId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "postId", r.PathValue("postId"), &postId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "postId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPost(w, r, postId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdatePost operation middleware
+func (siw *ServerInterfaceWrapper) UpdatePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "postId" -------------
+	var postId PostId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "postId", r.PathValue("postId"), &postId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "postId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdatePost(w, r, postId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListPrefectures operation middleware
 func (siw *ServerInterfaceWrapper) ListPrefectures(w http.ResponseWriter, r *http.Request) {
 
@@ -664,6 +939,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/refresh", wrapper.Refresh)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/logout", wrapper.Logout)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetMe)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/media/presign", wrapper.PresignMediaUpload)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/posts", wrapper.CreatePost)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/posts/{postId}", wrapper.DeletePost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/posts/{postId}", wrapper.GetPost)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/posts/{postId}", wrapper.UpdatePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/prefectures", wrapper.ListPrefectures)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/livez", wrapper.GetLivez)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/readyz", wrapper.GetReadyz)

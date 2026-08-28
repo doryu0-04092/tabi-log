@@ -52,12 +52,16 @@ func (h *prefectureHandler) ListPrefectures(w http.ResponseWriter, r *http.Reque
 func toAPIPrefectures(src []domain.Prefecture) []gen.Prefecture {
 	out := make([]gen.Prefecture, 0, len(src))
 	for _, p := range src {
-		out = append(out, gen.Prefecture{
-			Code:     p.Code,
-			Name:     p.Name,
-			NameKana: p.NameKana,
-			Region:   gen.PrefectureRegion(p.Region),
-		})
+		out = append(out, toAPIPrefecture(p))
 	}
 	return out
+}
+
+func toAPIPrefecture(p domain.Prefecture) gen.Prefecture {
+	return gen.Prefecture{
+		Code:     p.Code,
+		Name:     p.Name,
+		NameKana: p.NameKana,
+		Region:   gen.PrefectureRegion(p.Region),
+	}
 }

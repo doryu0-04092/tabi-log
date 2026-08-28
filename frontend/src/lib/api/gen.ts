@@ -125,6 +125,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/media/presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 画像アップロード用の署名付きURLを発行する
+         * @description 画像はブラウザから S3 へ直接送る。バックエンドを経由させないのは、
+         *     大きなファイルでサーバーの帯域とタイムアウトがボトルネックになるのを
+         *     避けるためである。
+         *
+         *     **署名付きURLを発行する時点で `media` を `pending` として記録する。**
+         *     「アップロードされる予定」を先に永続化しておかないと、送信後に投稿が
+         *     確定されなかった分だけ S3 に誰も参照しないオブジェクトが溜まり続け、
+         *     後から特定する手立てが無くなる。
+         *
+         *     アップロード後、S3 のイベントで起動する処理が形式を検証し、
+         *     **EXIF（GPS座標・撮影日時）を除去**して表示用の変換物を作る。
+         *     その処理が完了して `processed` になった画像だけが投稿に使える。
+         *
+         *     署名には Content-Type と最大サイズが焼き込まれる。条件に合わない
+         *     アップロードは S3 側で拒否される。
+         */
+        post: operations["presignMediaUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 投稿を作成する
+         * @description 画像・本文・都道府県・訪問日・タグをまとめて確定する。
+         *
+         *     **投稿本体・画像の紐づけ・タグの登録を1つのトランザクションで行う。**
+         *     分かれていると、途中で失敗したときに「画像の無い投稿」や
+         *     「どの投稿にも属さない画像」が残る。
+         *
+         *     指定できる画像は、**自分がアップロードし、処理が完了しており
+         *     （`processed`）、まだどの投稿にも紐づいていないもの**に限る。
+         */
+        post: operations["createPost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/posts/{postId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        /** 投稿を取得する */
+        get: operations["getPost"];
+        put?: never;
+        post?: never;
+        /**
+         * 投稿を削除する
+         * @description コメント・いいね・タグの紐づけ・画像が連鎖して削除される。
+         *     S3 上のオブジェクトはデータベースの制約では消えないため、
+         *     アプリケーションから明示的に削除する。
+         */
+        delete: operations["deletePost"];
+        options?: never;
+        head?: never;
+        /**
+         * 投稿を編集する
+         * @description **画像の差し替えは対象外**（要件定義書 3.2）。本文・都道府県・
+         *     スポット名・訪問日・タグ・代替テキストを変更できる。
+         *
+         *     **自分の投稿であることをサーバー側で検証する。**
+         *     画面側の制御は操作性のためであり、権限の根拠にはしない。
+         */
+        patch: operations["updatePost"];
+        trace?: never;
+    };
     "/prefectures": {
         parameters: {
             query?: never;
@@ -279,6 +373,107 @@ export interface components {
             displayName: string;
             bio?: string | null;
         };
+        PresignRequest: {
+            /**
+             * @description 画像の種類。**この値は署名に焼き込まれる**ため、
+             *     異なる種類でアップロードすると S3 が拒否する。
+             *
+             *     ただし申告値を信用はしない。アップロード後に
+             *     マジックバイトで実際の形式を検証する。
+             * @enum {string}
+             */
+            contentType: "image/jpeg" | "image/png" | "image/webp";
+            /**
+             * Format: int64
+             * @description バイト数。上限も署名に焼き込まれる
+             */
+            contentLength: number;
+        };
+        PresignResponse: {
+            data: {
+                /**
+                 * Format: int64
+                 * @description 投稿を作成するときにこの ID を指定する
+                 */
+                mediaId: number;
+                /** @description この URL へ PUT する。**サーバーを経由しない** */
+                uploadUrl: string;
+                /** @description 署名の有効秒数 */
+                expiresIn: number;
+            };
+        };
+        CreatePostRequest: {
+            body: string;
+            /** @description JIS X 0401 の都道府県コード。**必須**。自由入力は受け付けない */
+            prefectureCode: string;
+            /** @description 「道の駅○○」など。全文検索の対象に含める */
+            spotName?: string | null;
+            /**
+             * Format: date
+             * @description 訪問日。**投稿日とは別の軸である。** 旅行から帰ったあとに
+             *     まとめて投稿するのが自然な使われ方のため。未来日は受け付けない。
+             */
+            visitedOn: string;
+            tags?: string[];
+            media: components["schemas"]["PostMediaInput"][];
+        };
+        /** @description 画像の差し替えはできない。代替テキストのみ変更できる */
+        UpdatePostRequest: {
+            body: string;
+            prefectureCode: string;
+            spotName?: string | null;
+            /** Format: date */
+            visitedOn: string;
+            tags?: string[];
+            /** @description 既にこの投稿に紐づいている画像の代替テキスト */
+            mediaAltTexts: components["schemas"]["MediaAltText"][];
+        };
+        PostMediaInput: {
+            /** Format: int64 */
+            mediaId: number;
+            /**
+             * @description **必須。** 写真が主役のサービスで代替テキストを任意にすると
+             *     実質的に入力されず、画像が見えない利用者に何も伝わらなくなる。
+             */
+            altText: string;
+        };
+        MediaAltText: {
+            /** Format: int64 */
+            mediaId: number;
+            altText: string;
+        };
+        PostResponse: {
+            data: components["schemas"]["Post"];
+        };
+        Post: {
+            /** Format: int64 */
+            id: number;
+            author: components["schemas"]["User"];
+            body: string;
+            prefecture: components["schemas"]["Prefecture"];
+            spotName?: string | null;
+            /** Format: date */
+            visitedOn: string;
+            media: components["schemas"]["Media"][];
+            tags: string[];
+            likeCount: number;
+            commentCount: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        Media: {
+            /** Format: int64 */
+            id: number;
+            altText: string;
+            width: number;
+            height: number;
+            /** @description 長辺320px。一覧で使う */
+            thumbUrl: string;
+            /** @description 長辺1080px。詳細で使う */
+            mediumUrl: string;
+        };
         Prefecture: {
             /**
              * @description JIS X 0401 の都道府県コード。`01`〜`47` の2桁（先頭のゼロを含む）
@@ -355,8 +550,27 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /** @description 対象が存在しない */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description 権限が無い（他人の投稿を操作しようとした等） */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
     };
     parameters: {
+        PostId: number;
         /**
          * @description CSRF 対策。値は `tabi-log` 固定。
          *
@@ -553,6 +767,135 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthenticated"];
+        };
+    };
+    presignMediaUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresignRequest"];
+            };
+        };
+        responses: {
+            /** @description 発行した */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresignResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    createPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePostRequest"];
+            };
+        };
+        responses: {
+            /** @description 作成した */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    getPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 投稿 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostResponse"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deletePost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除した */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updatePost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePostRequest"];
+            };
+        };
+        responses: {
+            /** @description 更新した */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listPrefectures: {

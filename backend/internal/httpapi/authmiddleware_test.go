@@ -27,20 +27,31 @@ func TestPublicPaths_仕様のsecurity空と一致する(t *testing.T) {
 		t.Fatalf("仕様ファイルを読めない: %v", err)
 	}
 
+	// パス階層には HTTP メソッド以外のキー（parameters など）も並ぶため、
+	// いったん生のノードで受けてから、メソッドのものだけを解釈する。
 	var spec struct {
-		Paths map[string]map[string]struct {
-			Security *[]map[string][]string `yaml:"security"`
-		} `yaml:"paths"`
+		Paths map[string]map[string]yaml.Node `yaml:"paths"`
 	}
 	if err := yaml.Unmarshal(raw, &spec); err != nil {
 		t.Fatalf("仕様の解析に失敗した: %v", err)
 	}
 
+	httpMethods := map[string]struct{}{
+		"get": {}, "post": {}, "put": {}, "patch": {},
+		"delete": {}, "head": {}, "options": {}, "trace": {},
+	}
+
 	wantPublic := map[string]struct{}{}
 	for path, operations := range spec.Paths {
-		for method, op := range operations {
-			if method == "parameters" {
+		for method, node := range operations {
+			if _, ok := httpMethods[method]; !ok {
 				continue
+			}
+			var op struct {
+				Security *[]map[string][]string `yaml:"security"`
+			}
+			if err := node.Decode(&op); err != nil {
+				t.Fatalf("%s %s の解析に失敗した: %v", method, path, err)
 			}
 			// security: [] が明示されている操作だけが認証不要である。
 			// 省略されている場合はトップレベルの security（bearerAuth）が効く。
