@@ -28,7 +28,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
 # ---- 実行段 ----
-FROM alpine:3.22
+FROM alpine:3.24
 
 # ヘルスチェックや証明書検証に必要な最小限のみ入れる。
 RUN apk add --no-cache ca-certificates tzdata \
