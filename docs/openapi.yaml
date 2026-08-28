@@ -28,8 +28,176 @@ tags:
     description: 稼働確認
   - name: master
     description: マスタデータ
+  - name: auth
+    description: 認証
+
+# 既定ですべてのエンドポイントが認証を要する。
+# 認証不要のものは各操作で security: [] を明示して打ち消す。
+# **既定を「不要」にすると、書き忘れが「認証なしで公開」になる**ため逆にしている。
+security:
+  - bearerAuth: []
 
 paths:
+  /auth/signup:
+    post:
+      tags: [auth]
+      operationId: signup
+      summary: アカウントの作成
+      description: |
+        作成と同時にログイン状態にする。アクセストークンを本文で返し、
+        リフレッシュトークンを Cookie に設定する。
+
+        **メールアドレスの確認は行わない。** メール送信を対象外にしているため、
+        存在しないアドレスでも登録できる（要件定義書 3.2 の割り切り）。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        '201':
+          description: 作成した
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/RefreshTokenCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: メールアドレスかハンドルが既に使われている
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: ログイン
+      description: |
+        **認証に失敗した理由を区別しない。** 「そのアドレスは登録されていない」と
+        「パスワードが違う」を分けて返すと、どのアドレスが登録済みかを
+        総当たりで調べられる。どちらも同じ `invalid_credentials` を返す。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: ログインした
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/RefreshTokenCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: メールアドレスかパスワードが正しくない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refresh
+      summary: アクセストークンの再発行
+      description: |
+        Cookie のリフレッシュトークンから新しいアクセストークンを発行し、
+        **リフレッシュトークン自体もローテーションする**（新規発行＋旧失効）。
+
+        **失効済みトークンの再提示は盗用の兆候とみなし、そのユーザーの
+        全トークンを失効させる。** ただし正規のローテーション直後の短い猶予時間内は
+        例外とする。タブを複数開いた利用者の同時リフレッシュを
+        誤って盗用と判定し、正常な利用者をログアウトさせないためである。
+
+        このエンドポイントは Cookie で認証するため CSRF の対象になる。
+        `SameSite=Strict` に加えて `X-Requested-With: tabi-log` の付与を要求する。
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestedWith'
+      responses:
+        '200':
+          description: 再発行した
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/RefreshTokenCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: |
+            リフレッシュトークンが無い・期限切れ・失効済みである。
+            `code` が `token_reuse_detected` の場合は盗用とみなして
+            全トークンを失効させており、再ログインが必要になる。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/CsrfRejected'
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: ログアウト
+      description: |
+        リフレッシュトークンを失効させ、Cookie を削除する。
+
+        **発行済みのアクセストークンは最大15分間有効なままである。**
+        取り消すにはリクエストごとに失効一覧を参照する必要があり、
+        JWT を使う意味が薄れるため行わない。仕様上の制約として受け入れている。
+
+        トークンが無い場合も 204 を返す（冪等）。
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestedWith'
+      responses:
+        '204':
+          description: ログアウトした（トークンが無い場合も含む）
+          headers:
+            Set-Cookie:
+              description: リフレッシュトークンを削除する `Set-Cookie`
+              schema:
+                type: string
+        '403':
+          $ref: '#/components/responses/CsrfRejected'
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: ログイン中の利用者
+      description: アクセストークンが指す利用者を返す。画面の初期化に使う。
+      responses:
+        '200':
+          description: ログイン中の利用者
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
   /prefectures:
     get:
       tags: [master]
@@ -98,6 +266,66 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
 components:
+  parameters:
+    RequestedWith:
+      name: X-Requested-With
+      in: header
+      required: true
+      description: |
+        CSRF 対策。値は `tabi-log` 固定。
+
+        カスタムヘッダーは単純リクエストの条件を外れるため、
+        クロスオリジンから送るには CORS のプリフライトが通る必要がある。
+        フォーム送信や `<img>` のような**プリフライトを伴わない経路では付けられない**。
+        `SameSite=Strict` と合わせて二重に守る。
+      schema:
+        type: string
+        enum: [tabi-log]
+
+  headers:
+    RefreshTokenCookie:
+      description: |
+        リフレッシュトークンを設定する `Set-Cookie`。
+
+        `HttpOnly` `Secure` `SameSite=Strict` を付け、
+        **`Path=/api/auth` に限定する**。投稿や検索といった他の API リクエストには
+        一切乗らないため、Cookie が晒される面が小さくなる。
+
+        `/api/auth/refresh` まで絞らないのは、**ログアウトでも Cookie を読んで
+        サーバー側で失効させる必要がある**ためである。より狭い Path にすると
+        `/api/auth/logout` へ Cookie が送られず、ブラウザ側で消すことしかできない。
+      schema:
+        type: string
+
+  responses:
+    ValidationError:
+      description: 入力が要件を満たしていない
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthenticated:
+      description: アクセストークンが無い、期限切れ、または不正である
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    CsrfRejected:
+      description: CSRF 対策のヘッダーが無い、または値が正しくない
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    RateLimited:
+      description: 試行回数の上限に達した
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
   securitySchemes:
     bearerAuth:
       type: http
@@ -138,6 +366,107 @@ components:
               type: string
               description: 利用者に表示する説明。内部構造やスタックは含めない。
               example: データベースへ接続できません
+
+    # -----------------------------------------------------------------------
+    # 認証
+    # -----------------------------------------------------------------------
+    SignupRequest:
+      type: object
+      required: [email, handle, displayName, password]
+      properties:
+        email:
+          type: string
+          # format: email はあえて付けない。
+          # コード生成器が専用の型を作り、その型が JSON の復号時に
+          # 形式検証を行うため、**どの項目が不正なのかを利用者へ返せなくなる**
+          # （本文全体の「形式が正しくありません」に丸められる）。
+          # 検証はアプリケーション側で行い、項目ごとの説明を返す。
+          description: メールアドレス。ログインIDとして使う
+          maxLength: 255
+          example: traveler@example.com
+        handle:
+          type: string
+          description: URL に使う識別子。英数字とアンダースコアのみ
+          pattern: '^[A-Za-z0-9_]+$'
+          minLength: 3
+          maxLength: 30
+          example: traveler_01
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: たびびと
+        password:
+          type: string
+          format: password
+          description: |
+            8文字以上。**上限を 72 にしているのは bcrypt の制約**である。
+            bcrypt は 72 バイトを超える入力を切り捨てるため、
+            それ以上を受け付けると「長いほど安全」という利用者の期待を裏切る。
+          minLength: 8
+          maxLength: 72
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          description: メールアドレス
+        password:
+          type: string
+          format: password
+
+    AuthResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [accessToken, expiresIn, user]
+          properties:
+            accessToken:
+              type: string
+              description: |
+                JWT。`Authorization: Bearer <token>` で送る。
+
+                **クライアントはこれをメモリにのみ保持し、localStorage に
+                保存しない。** 保存すると XSS で読み出せてしまう。
+                リロード時は `/auth/refresh` から取り直す。
+            expiresIn:
+              type: integer
+              description: アクセストークンの残り有効秒数
+              example: 900
+            user:
+              $ref: '#/components/schemas/User'
+
+    MeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      description: 公開してよい利用者情報のみを含む。メールアドレスは含めない
+      required: [id, handle, displayName]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 1
+        handle:
+          type: string
+          example: traveler_01
+        displayName:
+          type: string
+          example: たびびと
+        bio:
+          type: string
+          nullable: true
+          maxLength: 300
 
     Prefecture:
       type: object

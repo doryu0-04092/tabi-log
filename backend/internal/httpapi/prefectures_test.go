@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,28 +11,10 @@ import (
 	"github.com/doryu0-04092/tabi-log/backend/internal/domain"
 )
 
-// stubPrefectureLister は固定の結果を返す。
-type stubPrefectureLister struct {
-	items []domain.Prefecture
-	err   error
-}
-
-func (s stubPrefectureLister) List(context.Context) ([]domain.Prefecture, error) {
-	return s.items, s.err
-}
-
-func newPrefectureRouter(store PrefectureLister) http.Handler {
-	return NewRouter(Deps{
-		DB:          stubPinger{},
-		Prefectures: store,
-		Logger:      discardLogger(),
-	})
-}
-
 func getPrefectures(t *testing.T, store PrefectureLister) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	newPrefectureRouter(store).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/prefectures", nil))
+	newRouter(t, testDeps{prefectures: store}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/prefectures", nil))
 	return rec
 }
 
