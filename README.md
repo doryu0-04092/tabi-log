@@ -118,7 +118,10 @@ CI が再生成して**未追跡ファイルを含めて**差分の有無を検�
 
 ```bash
 # バックエンド
-cd backend && go test ./...
+cd backend
+go test ./...
+golangci-lint run   # CI と同じ検査。未導入なら:
+                    #   go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
 # フロントエンド
 cd frontend
