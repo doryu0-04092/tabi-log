@@ -1,0 +1,25 @@
+# oapi-codegen の設定。
+#
+# 生成するもの:
+#   - models         : リクエスト・レスポンスの型
+#   - std-http-server: ServerInterface と、標準 http.ServeMux への登録関数
+#
+# ServerInterface を実装することを強制するのが spec-first の要点である。
+# 仕様にあるエンドポイントを実装し忘れれば **コンパイルエラーになる**。
+# 仕様と実装のずれをレビューではなく型検査で捕まえるための構成である。
+#
+# std-http-server が生成するのは標準の http.ServeMux への HandleFunc 呼び出しだけで、
+# 独自の Context 型やフレームワークは持ち込まれない。ハンドラの型は
+# 素の http.HandlerFunc のままなので、生成をやめても実装は剥がせる。
+#
+# 生成（backend ディレクトリで実行）:
+#   go generate ./...
+package: gen
+output: internal/api/gen/api.gen.go
+generate:
+  models: true
+  std-http-server: true
+  strict-server: false
+  embedded-spec: false
+output-options:
+  skip-prune: true

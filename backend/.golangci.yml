@@ -1,0 +1,26 @@
+# golangci-lint の設定。
+#
+# 既定で有効な検査に加え、実際に不具合につながるものだけを足す。
+# 大量に有効化してノイズで無視されるようになるのを避ける。
+version: "2"
+
+linters:
+  enable:
+    - errcheck      # エラーの戻り値を捨てていないか
+    - govet
+    - ineffassign   # 使われない代入
+    - staticcheck
+    - unused
+    - bodyclose     # HTTP レスポンスボディの閉じ忘れ（接続リークの原因）
+    - rowserrcheck  # sql.Rows.Err() の確認漏れ（部分的な結果を全件と誤認する）
+    - sqlclosecheck # sql.Rows / Stmt の閉じ忘れ
+    - errorlint     # errors.Is/As を使わない型アサーション
+  exclusions:
+    rules:
+      # 生成物は対象外。指摘しても直せない。
+      - path: internal/api/gen/
+        linters: [errcheck, govet, ineffassign, staticcheck, unused, errorlint]
+
+formatters:
+  enable:
+    - gofmt

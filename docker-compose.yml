@@ -1,0 +1,93 @@
+# ローカル開発環境
+#
+# フロントエンドはここに含めない。ホットリロードを優先し `npm run dev` で
+# ネイティブ起動する（前回プロジェクトと同じ方針）。
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: tabilog-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      # 全文検索は ngram パーサを使う。トークン長は既定の 2 のままとし、
+      # 本番（RDS のパラメータグループ）と値を揃える。
+      - --ngram-token-size=2
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # backend がマイグレーション前の空の DB に接続しに行って
+      # 起動に失敗するのを防ぐため、疎通できるまで待たせる。
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  localstack:
+    image: localstack/localstack:4
+    container_name: tabilog-localstack
+    environment:
+      SERVICES: s3
+      DEBUG: "0"
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: tabilog-backend
+    environment:
+      APP_ENV: local
+      PORT: "8080"
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # マイグレーション適用用の使い捨てコンテナ。
+  #
+  # profiles を付けているため `docker compose up` では起動しない。
+  # マイグレーションはデプロイや起動から切り離し、明示的に実行する方針である
+  # （前回プロジェクトでは起動時に自動適用していた）。
+  #
+  #   適用:   docker compose run --rm migrate up
+  #   1つ戻す: docker compose run --rm migrate down 1
+  #   状態:   docker compose run --rm migrate version
+  migrate:
+    image: migrate/migrate:v4.19.0
+    profiles: ["tools"]
+    volumes:
+      - ./backend/db/migrations:/migrations:ro
+    entrypoint:
+      - migrate
+      - -path=/migrations
+      - -database=mysql://${DB_USER}:${DB_PASSWORD}@tcp(mysql:3306)/${DB_NAME}?multiStatements=true
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql-data:

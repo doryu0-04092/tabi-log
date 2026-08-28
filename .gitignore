@@ -1,0 +1,42 @@
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# --- secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- frontend ---
+node_modules/
+frontend/.svelte-kit/
+frontend/build/
+frontend/.vite/
+test-results/
+playwright-report/
+.lighthouseci/
+
+# --- backend (Go) ---
+backend/bin/
+lambda/image/bin/
+*.exe
+*.test
+*.out
+coverage.*
+
+# --- terraform ---
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/*.tfvars
+!infra/*.tfvars.example
+crash.log
+
+# --- local runtime ---
+docker/data/
+*.log

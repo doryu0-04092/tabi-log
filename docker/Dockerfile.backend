@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1
+
+# ---- ビルド段 ----
+FROM golang:1.27-alpine AS build
+
+WORKDIR /src
+
+# 依存の解決だけを先に行い、ソースの変更でこの層が無効にならないようにする。
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+
+COPY backend/ ./
+
+# CGO を無効にして静的リンクする。実行段の scratch/alpine に
+# 共有ライブラリを持ち込まずに済む。
+# -trimpath はビルド環境の絶対パスを成果物から除く。
+ENV CGO_ENABLED=0 GOOS=linux
+RUN go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
+
+# ---- 実行段 ----
+FROM alpine:3.22
+
+# ヘルスチェックや証明書検証に必要な最小限のみ入れる。
+RUN apk add --no-cache ca-certificates tzdata \
+    && adduser -D -u 10001 app
+
+COPY --from=build /out/server /usr/local/bin/server
+
+# root で動かさない。コンテナが侵害された場合の影響を狭める。
+USER app
+
+EXPOSE 8080
+
+# ヘルスチェックは DB を見ない livez に向ける。
+# readyz を使うと、DB の一時的な不調でコンテナ自体が unhealthy と判定される。
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/api/livez || exit 1
+
+ENTRYPOINT ["/usr/local/bin/server"]

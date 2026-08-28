@@ -1,0 +1,143 @@
+openapi: 3.0.3
+
+info:
+  title: tabi-log API
+  version: 0.1.0
+  description: |
+    旅行写真 SNS「tabi-log」の HTTP API 仕様。
+
+    **このファイルが唯一の正である。** サーバーの型とクライアントの型は
+    ここから生成する。実装からこのファイルを生成するのではない。
+
+    前回プロジェクトでは実装から仕様書を生成しており、注釈の解釈違いによって
+    「成功レスポンスが存在しない」仕様書が生成される事故を起こしている。
+    ビルドもテストも通るため、生成物を目視するまで気づけなかった。
+    向きを逆にすることで、実装が仕様から外れた場合は型検査の失敗として現れる。
+
+    生成:
+      - Go   : oapi-codegen  -> backend/internal/api/gen/
+      - TS   : openapi-typescript -> frontend/src/lib/api/gen.ts
+    CI で再生成し、差分が出ないことを検証する。
+
+servers:
+  - url: /api
+    description: CloudFront（本番）および Vite の proxy（ローカル）が同一オリジンで振り分ける
+
+tags:
+  - name: health
+    description: 稼働確認
+
+paths:
+  /livez:
+    get:
+      tags: [health]
+      operationId: getLivez
+      summary: プロセスの生存確認
+      description: |
+        **依存先を一切見ない。** ロードバランサのヘルスチェックはこちらへ向ける。
+
+        依存先まで確認するヘルスチェックをロードバランサに向けると、
+        データベースが一時的に不調になったときに全タスクが同時に unhealthy と
+        判定されて一斉に置き換えられる。置き換えてもデータベースは回復しないため
+        状況が悪化するだけである。タスクを入れ替えるべき理由になるのは
+        「プロセスが生きていないこと」だけである。
+      security: []
+      responses:
+        '200':
+          description: プロセスは動作している
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LivezResponse'
+
+  /readyz:
+    get:
+      tags: [health]
+      operationId: getReadyz
+      summary: 依存先を含む疎通確認
+      description: |
+        データベースへの疎通を含めて確認する。デプロイ時の投入判定や
+        運用中の状況確認に使う。**ロードバランサのヘルスチェックには使わない。**
+      security: []
+      responses:
+        '200':
+          description: すべての依存先へ疎通できる
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyzResponse'
+        '503':
+          description: いずれかの依存先へ疎通できない
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        アクセストークン（JWT・15分）を Authorization ヘッダで送る。
+
+        クライアントはこのトークンを **JavaScript のメモリにのみ保持し、
+        localStorage には保存しない**。リロード時はリフレッシュトークン
+        （HttpOnly Cookie）から再取得する。
+
+        ヘッダ方式にしていることで、通常の API は CSRF の対象外になる。
+        Cookie を用いるのは /auth/refresh と /auth/logout の2本のみである。
+
+  schemas:
+    # -----------------------------------------------------------------------
+    # 共通のエンベロープ
+    #
+    # 成功は data、失敗は error で包む。生の値を返さないのは、後から
+    # ページネーション情報やメタデータを足すときに形を壊さないためである。
+    # -----------------------------------------------------------------------
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: |
+                機械可読な識別子。**クライアントはこちらで分岐すること。**
+                message は表示専用であり、文言の変更で分岐が壊れないようにする。
+              example: dependency_unavailable
+            message:
+              type: string
+              description: 利用者に表示する説明。内部構造やスタックは含めない。
+              example: データベースへ接続できません
+
+    LivezResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [status]
+          properties:
+            status:
+              type: string
+              enum: [ok]
+
+    ReadyzResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [status, database]
+          properties:
+            status:
+              type: string
+              enum: [ok]
+            database:
+              type: string
+              enum: [ok]

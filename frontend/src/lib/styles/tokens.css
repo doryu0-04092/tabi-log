@@ -1,0 +1,96 @@
+/*
+ * デザイントークン。
+ *
+ * Tailwind を使わない代わりに、色・余白・字送りの基準値をここに集約する。
+ * 個々のコンポーネントは Svelte のスコープ付き CSS でこの変数を参照する。
+ * 依存を増やさずに一貫性を保つための最小構成である。
+ *
+ * 色は本文と背景で 4.5:1 以上のコントラスト比を満たすように選ぶ
+ * （docs/requirements.md のアクセシビリティ要件）。
+ */
+
+:root {
+	color-scheme: light dark;
+
+	/* 面 */
+	--color-bg: #ffffff;
+	--color-surface: #f6f7f9;
+	--color-border: #d8dce2;
+
+	/* 文字 */
+	--color-text: #1a1d21;
+	--color-text-muted: #56606b;
+
+	/* 主色 */
+	--color-accent: #1f6f4a;
+	--color-accent-text: #ffffff;
+
+	/* 状態 */
+	--color-danger: #a4252b;
+	--color-ok: #1f6f4a;
+
+	/* 余白 */
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-6: 1.5rem;
+	--space-8: 2rem;
+
+	--radius: 8px;
+
+	--font-sans:
+		system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', 'Meiryo', sans-serif;
+	--font-mono: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+
+	--measure: 40rem;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--color-bg: #14171a;
+		--color-surface: #1e2226;
+		--color-border: #333a41;
+		--color-text: #eceff2;
+		--color-text-muted: #a3adb8;
+		--color-accent: #5cc08c;
+		--color-accent-text: #10241a;
+		--color-danger: #ef8f93;
+		--color-ok: #5cc08c;
+	}
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-family: var(--font-sans);
+	line-height: 1.7;
+}
+
+/*
+ * フォーカスの可視化。
+ *
+ * outline を消すとキーボード利用者が現在位置を見失う。
+ * 既定の outline を消さず、見やすい形に整えるだけにする。
+ */
+:focus-visible {
+	outline: 3px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+/* 視覚的には隠すが支援技術には読ませる。スキップリンク等で使う。 */
+.visually-hidden:not(:focus):not(:active) {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}

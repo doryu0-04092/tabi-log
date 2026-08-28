@@ -1,0 +1,27 @@
+version: 2
+
+# 依存の更新を自動で提案させる。脆弱性が公表されてから気づくまでの時間を短くする。
+# まとめて上げると壊れたときの切り分けができないため、
+# エコシステムごとに分け、頻度を週次に抑える。
+updates:
+  - package-ecosystem: gomod
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
