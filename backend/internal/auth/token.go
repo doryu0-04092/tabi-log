@@ -142,7 +142,9 @@ func (s *JWTService) Verify(raw string) (Claims, error) {
 		if errors.Is(err, jwt.ErrTokenExpired) {
 			return Claims{}, ErrTokenExpired
 		}
-		return Claims{}, fmt.Errorf("%w: %v", ErrTokenInvalid, err)
+		// 元のエラーも包む。呼び出し側の判定は errors.Is(err, ErrTokenInvalid) で
+		// 足りるが、原因（署名不一致か形式不正か）をログで追えるようにしておく。
+		return Claims{}, fmt.Errorf("%w: %w", ErrTokenInvalid, err)
 	}
 
 	claims, ok := parsed.Claims.(jwt.MapClaims)
