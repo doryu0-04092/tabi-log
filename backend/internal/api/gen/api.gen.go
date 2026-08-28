@@ -25,6 +25,42 @@ func (e LivezResponseDataStatus) Valid() bool {
 	}
 }
 
+// Defines values for PrefectureRegion.
+const (
+	Chubu         PrefectureRegion = "中部"
+	Chugoku       PrefectureRegion = "中国"
+	Hokkaido      PrefectureRegion = "北海道"
+	Kanto         PrefectureRegion = "関東"
+	Kinki         PrefectureRegion = "近畿"
+	KyushuOkinawa PrefectureRegion = "九州沖縄"
+	Shikoku       PrefectureRegion = "四国"
+	Tohoku        PrefectureRegion = "東北"
+)
+
+// Valid indicates whether the value is a known member of the PrefectureRegion enum.
+func (e PrefectureRegion) Valid() bool {
+	switch e {
+	case Chubu:
+		return true
+	case Chugoku:
+		return true
+	case Hokkaido:
+		return true
+	case Kanto:
+		return true
+	case Kinki:
+		return true
+	case KyushuOkinawa:
+		return true
+	case Shikoku:
+		return true
+	case Tohoku:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReadyzResponseDataDatabase.
 const (
 	ReadyzResponseDataDatabaseOk ReadyzResponseDataDatabase = "ok"
@@ -82,6 +118,38 @@ type LivezResponse struct {
 // LivezResponseDataStatus defines model for LivezResponse.Data.Status.
 type LivezResponseDataStatus string
 
+// Prefecture defines model for Prefecture.
+type Prefecture struct {
+	// Code JIS X 0401 の都道府県コード。`01`〜`47` の2桁（先頭のゼロを含む）
+	//
+	// Example: 01
+	Code string `json:"code"`
+
+	// Name Example: 北海道
+	Name string `json:"name"`
+
+	// NameKana 読み。並べ替えと検索の補助に使う
+	//
+	// Example: ほっかいどう
+	NameKana string `json:"nameKana"`
+
+	// Region 八地方区分。「関東の投稿」のような粒度での絞り込みに使う
+	//
+	// Example: 北海道
+	Region PrefectureRegion `json:"region"`
+}
+
+// PrefectureRegion 八地方区分。「関東の投稿」のような粒度での絞り込みに使う
+//
+// Example: 北海道
+type PrefectureRegion string
+
+// PrefectureListResponse defines model for PrefectureListResponse.
+type PrefectureListResponse struct {
+	// Data JIS コード順に並んだ47件
+	Data []Prefecture `json:"data"`
+}
+
 // ReadyzResponse defines model for ReadyzResponse.
 type ReadyzResponse struct {
 	Data struct {
@@ -101,6 +169,9 @@ type ServerInterface interface {
 	// GetLivez プロセスの生存確認
 	// (GET /livez)
 	GetLivez(w http.ResponseWriter, r *http.Request)
+	// ListPrefectures 都道府県マスタの一覧
+	// (GET /prefectures)
+	ListPrefectures(w http.ResponseWriter, r *http.Request)
 	// GetReadyz 依存先を含む疎通確認
 	// (GET /readyz)
 	GetReadyz(w http.ResponseWriter, r *http.Request)
@@ -120,6 +191,20 @@ func (siw *ServerInterfaceWrapper) GetLivez(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetLivez(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPrefectures operation middleware
+func (siw *ServerInterfaceWrapper) ListPrefectures(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPrefectures(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -263,6 +348,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/prefectures", wrapper.ListPrefectures)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/livez", wrapper.GetLivez)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/readyz", wrapper.GetReadyz)
 

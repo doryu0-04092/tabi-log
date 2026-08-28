@@ -44,7 +44,11 @@ func run() error {
 	}
 	defer func() { _ = db.Close() }()
 
-	handler := httpapi.NewRouter(httpapi.Deps{DB: db, Logger: logger})
+	handler := httpapi.NewRouter(httpapi.Deps{
+		DB:          db,
+		Prefectures: store.NewPrefectureStore(db),
+		Logger:      logger,
+	})
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
