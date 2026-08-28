@@ -1,8 +1,23 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import favicon from '$lib/assets/favicon.svg';
+	import { logout, restoreSession, session } from '$lib/auth/session.svelte';
 	import '$lib/styles/tokens.css';
 
 	let { children } = $props();
+
+	// アクセストークンはメモリにしか無いため、リロードで消える。
+	// Cookie のリフレッシュトークンから取り直す。
+	$effect(() => {
+		void restoreSession();
+	});
+
+	async function handleLogout() {
+		await logout();
+		await goto(resolve('/login'));
+	}
 </script>
 
 <svelte:head>
@@ -17,7 +32,22 @@
 <a class="skip-link" href="#main">本文へスキップ</a>
 
 <header>
-	<p class="brand">tabi-log</p>
+	<a class="brand" href={resolve("/")}>tabi-log</a>
+
+	<nav aria-label="アカウント">
+		<!--
+			復元が終わるまで何も出さない。ここで「ログイン」を先に描くと、
+			リロードのたびに一瞬ログアウトしたように見える。
+		-->
+		{#if session.restored}
+			{#if session.isAuthenticated}
+				<span class="who">{session.user?.displayName}</span>
+				<button type="button" onclick={handleLogout}>ログアウト</button>
+			{:else if page.url.pathname !== '/login' && page.url.pathname !== '/signup'}
+				<a href={resolve("/login")}>ログイン</a>
+			{/if}
+		{/if}
+	</nav>
 </header>
 
 <main id="main" tabindex="-1">
@@ -42,14 +72,41 @@
 	}
 
 	header {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-4);
 		border-bottom: 1px solid var(--color-border);
 		padding: var(--space-4);
 	}
 
 	.brand {
-		margin: 0;
 		font-weight: 700;
 		letter-spacing: 0.02em;
+		color: inherit;
+		text-decoration: none;
+	}
+
+	nav {
+		display: flex;
+		align-items: center;
+		gap: var(--space-4);
+		min-height: 2.25rem;
+	}
+
+	.who {
+		color: var(--color-text-muted);
+	}
+
+	nav button {
+		padding: var(--space-1) var(--space-3);
+		font: inherit;
+		color: var(--color-text);
+		background: transparent;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius);
+		cursor: pointer;
 	}
 
 	main {

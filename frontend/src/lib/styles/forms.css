@@ -1,0 +1,70 @@
+/*
+ * フォームの共通スタイル。
+ *
+ * ログインとサインアップで同じ見た目・同じ操作感にするために切り出す。
+ * 画面が増えたら、繰り返しが3つ目になった時点でコンポーネント化を検討する。
+ */
+
+.form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	max-width: 26rem;
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
+.field label {
+	font-weight: 600;
+}
+
+.field input {
+	padding: var(--space-2) var(--space-3);
+	font: inherit;
+	color: var(--color-text);
+	background: var(--color-bg);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius);
+}
+
+/* 補足説明。入力欄と aria-describedby で結び付ける。 */
+.hint {
+	color: var(--color-text-muted);
+	font-size: 0.875rem;
+}
+
+/*
+ * エラー表示。
+ *
+ * 色だけで伝えないよう、記号（✕）と文言を必ず添える。
+ * 枠線も付けて、色覚特性や白黒印刷でも区別できるようにする。
+ */
+.form-error {
+	display: flex;
+	gap: var(--space-2);
+	padding: var(--space-3) var(--space-4);
+	color: var(--color-danger);
+	background: var(--color-surface);
+	border: 1px solid var(--color-danger);
+	border-radius: var(--radius);
+}
+
+.submit {
+	padding: var(--space-3) var(--space-4);
+	font: inherit;
+	font-weight: 600;
+	color: var(--color-accent-text);
+	background: var(--color-accent);
+	border: none;
+	border-radius: var(--radius);
+	cursor: pointer;
+}
+
+.submit:disabled {
+	opacity: 0.6;
+	cursor: progress;
+}

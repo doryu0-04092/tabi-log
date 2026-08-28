@@ -10,6 +10,14 @@ export default ts.config(
 	{
 		languageOptions: {
 			globals: { ...globals.browser, ...globals.node }
+		},
+		rules: {
+			// 使わない引数を _ 始まりで明示できるようにする。
+			// 位置を合わせるためだけに受ける引数（モックの第1引数など）がある。
+			'@typescript-eslint/no-unused-vars': [
+				'error',
+				{ argsIgnorePattern: '^_', varsIgnorePattern: '^_' }
+			]
 		}
 	},
 	{
