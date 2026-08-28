@@ -4,18 +4,28 @@
 FROM golang:1.27-alpine AS build
 
 WORKDIR /src
-
-# 依存の解決だけを先に行い、ソースの変更でこの層が無効にならないようにする。
-COPY backend/go.mod backend/go.sum ./
-RUN go mod download
-
 COPY backend/ ./
 
-# CGO を無効にして静的リンクする。実行段の scratch/alpine に
-# 共有ライブラリを持ち込まずに済む。
+# CGO を無効にして静的リンクする。実行段の alpine に共有ライブラリを持ち込まずに済む。
 # -trimpath はビルド環境の絶対パスを成果物から除く。
 ENV CGO_ENABLED=0 GOOS=linux
-RUN go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
+
+# `go mod download` を別の層で先に実行しない。
+#
+# go.mod にはコード生成ツール（sqlc / oapi-codegen）が tool 依存として入っており、
+# `go mod download` は**それらが引き込む 141 モジュール（grpc・protobuf 等）まで
+# すべて取得する**。サーバーのビルドに実際に必要な外部モジュールは 2 個だけで、
+# 残りは実行イメージに一切関係しない。
+#
+# 取得量が多いほどネットワーク起因の失敗に当たりやすく、実際に CI の
+# Docker ビルドが proxy.golang.org からの取得中断で落ちている。
+#
+# `go build ./cmd/server` は import グラフに含まれるモジュールだけを取得するため、
+# 取得対象が 141 から 2 に減る。層の分割で得られたキャッシュ効果は、
+# BuildKit のキャッシュマウントで置き換える。
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
 # ---- 実行段 ----
 FROM alpine:3.22
