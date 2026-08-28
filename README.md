@@ -61,6 +61,16 @@ docker compose run --rm migrate up
 cd frontend && npm install && npm run dev
 ```
 
+> **画像を扱う場合は、起動前に画像処理 Lambda をビルドしてください。**
+> LocalStack の初期化スクリプトがこの成果物を読み込んで Lambda を作り、
+> S3 のイベント通知を設定します。無い場合は S3 だけが作られ、
+> アップロードした画像が `processed` にならず投稿できません。
+>
+> ```bash
+> bash docker/build-imageworker.sh
+> docker compose up -d   # 既に起動している場合は down してから
+> ```
+
 <http://localhost:5173> を開くと、バックエンドとの疎通結果が表示されます。
 
 | サービス | ポート |
@@ -87,6 +97,30 @@ docker compose run --rm migrate version     # 現在の版
 
 新しいマイグレーションは `backend/db/migrations/` に
 `000003_<内容>.up.sql` と `.down.sql` の対で追加します。**適用済みのファイルは変更しません。**
+
+### 画像の扱い
+
+画像は**ブラウザから S3 へ直接送ります**（サーバーを経由しません）。
+大きなファイルでバックエンドの帯域とタイムアウトがボトルネックになるのを避けるためです。
+
+```
+1. POST /api/media/presign  → media を pending で記録し、署名付きURLを返す
+2. ブラウザ → S3           → 署名付きURLへ直接 PUT
+3. S3 イベント → Lambda    → 形式検証・EXIF除去・変換物の生成 → processed へ
+4. POST /api/posts         → processed の画像だけを投稿に紐づけられる
+```
+
+**バックエンドは画像の中身を一度も見ません。** そのため中身を検証できる唯一の場所が
+Lambda（`backend/cmd/imageworker`）になります。ここで行うことは3つです。
+
+- 拡張子や申告された Content-Type ではなく、**バイト列から実際の形式を判定する**
+- **EXIF（GPS座標・撮影日時・端末情報）を除去する** — 位置情報を都道府県までに
+  絞っていても、画像に GPS が残っていれば意味がなくなります
+- EXIF を消すと**向きの情報も消える**ため、消す前に読み取って画素を回転させます
+  （これをしないとスマートフォンの縦写真が横倒しになります）
+
+変換の中身は `backend/internal/media` にあり、S3 にもデータベースにも依存しません。
+何も起動せずにテストできます。
 
 ### コード生成
 

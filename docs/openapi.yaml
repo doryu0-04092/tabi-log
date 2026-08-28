@@ -30,6 +30,8 @@ tags:
     description: マスタデータ
   - name: auth
     description: 認証
+  - name: posts
+    description: 投稿と画像
 
 # 既定ですべてのエンドポイントが認証を要する。
 # 認証不要のものは各操作で security: [] を明示して打ち消す。
@@ -198,6 +200,147 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
 
+  /media/presign:
+    post:
+      tags: [posts]
+      operationId: presignMediaUpload
+      summary: 画像アップロード用の署名付きURLを発行する
+      description: |
+        画像はブラウザから S3 へ直接送る。バックエンドを経由させないのは、
+        大きなファイルでサーバーの帯域とタイムアウトがボトルネックになるのを
+        避けるためである。
+
+        **署名付きURLを発行する時点で `media` を `pending` として記録する。**
+        「アップロードされる予定」を先に永続化しておかないと、送信後に投稿が
+        確定されなかった分だけ S3 に誰も参照しないオブジェクトが溜まり続け、
+        後から特定する手立てが無くなる。
+
+        アップロード後、S3 のイベントで起動する処理が形式を検証し、
+        **EXIF（GPS座標・撮影日時）を除去**して表示用の変換物を作る。
+        その処理が完了して `processed` になった画像だけが投稿に使える。
+
+        署名には Content-Type と最大サイズが焼き込まれる。条件に合わない
+        アップロードは S3 側で拒否される。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignRequest'
+      responses:
+        '201':
+          description: 発行した
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /posts:
+    post:
+      tags: [posts]
+      operationId: createPost
+      summary: 投稿を作成する
+      description: |
+        画像・本文・都道府県・訪問日・タグをまとめて確定する。
+
+        **投稿本体・画像の紐づけ・タグの登録を1つのトランザクションで行う。**
+        分かれていると、途中で失敗したときに「画像の無い投稿」や
+        「どの投稿にも属さない画像」が残る。
+
+        指定できる画像は、**自分がアップロードし、処理が完了しており
+        （`processed`）、まだどの投稿にも紐づいていないもの**に限る。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostRequest'
+      responses:
+        '201':
+          description: 作成した
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /posts/{postId}:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+
+    get:
+      tags: [posts]
+      operationId: getPost
+      summary: 投稿を取得する
+      responses:
+        '200':
+          description: 投稿
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [posts]
+      operationId: updatePost
+      summary: 投稿を編集する
+      description: |
+        **画像の差し替えは対象外**（要件定義書 3.2）。本文・都道府県・
+        スポット名・訪問日・タグ・代替テキストを変更できる。
+
+        **自分の投稿であることをサーバー側で検証する。**
+        画面側の制御は操作性のためであり、権限の根拠にはしない。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePostRequest'
+      responses:
+        '200':
+          description: 更新した
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [posts]
+      operationId: deletePost
+      summary: 投稿を削除する
+      description: |
+        コメント・いいね・タグの紐づけ・画像が連鎖して削除される。
+        S3 上のオブジェクトはデータベースの制約では消えないため、
+        アプリケーションから明示的に削除する。
+      responses:
+        '204':
+          description: 削除した
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /prefectures:
     get:
       tags: [master]
@@ -267,6 +410,15 @@ paths:
 
 components:
   parameters:
+    PostId:
+      name: postId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
     RequestedWith:
       name: X-Requested-With
       in: header
@@ -321,6 +473,20 @@ components:
 
     RateLimited:
       description: 試行回数の上限に達した
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: 対象が存在しない
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Forbidden:
+      description: 権限が無い（他人の投稿を操作しようとした等）
       content:
         application/json:
           schema:
@@ -467,6 +633,210 @@ components:
           type: string
           nullable: true
           maxLength: 300
+
+    # -----------------------------------------------------------------------
+    # 投稿と画像
+    # -----------------------------------------------------------------------
+    PresignRequest:
+      type: object
+      required: [contentType, contentLength]
+      properties:
+        contentType:
+          type: string
+          description: |
+            画像の種類。**この値は署名に焼き込まれる**ため、
+            異なる種類でアップロードすると S3 が拒否する。
+
+            ただし申告値を信用はしない。アップロード後に
+            マジックバイトで実際の形式を検証する。
+          enum: [image/jpeg, image/png, image/webp]
+        contentLength:
+          type: integer
+          format: int64
+          description: バイト数。上限も署名に焼き込まれる
+          minimum: 1
+          maximum: 10485760
+
+    PresignResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [mediaId, uploadUrl, expiresIn]
+          properties:
+            mediaId:
+              type: integer
+              format: int64
+              description: 投稿を作成するときにこの ID を指定する
+            uploadUrl:
+              type: string
+              description: この URL へ PUT する。**サーバーを経由しない**
+            expiresIn:
+              type: integer
+              description: 署名の有効秒数
+
+    CreatePostRequest:
+      type: object
+      required: [body, prefectureCode, visitedOn, media]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        prefectureCode:
+          type: string
+          description: JIS X 0401 の都道府県コード。**必須**。自由入力は受け付けない
+          pattern: '^[0-4][0-9]$'
+        spotName:
+          type: string
+          maxLength: 100
+          nullable: true
+          description: 「道の駅○○」など。全文検索の対象に含める
+        visitedOn:
+          type: string
+          format: date
+          description: |
+            訪問日。**投稿日とは別の軸である。** 旅行から帰ったあとに
+            まとめて投稿するのが自然な使われ方のため。未来日は受け付けない。
+        tags:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+            minLength: 1
+            maxLength: 50
+        media:
+          type: array
+          minItems: 1
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/PostMediaInput'
+
+    UpdatePostRequest:
+      type: object
+      required: [body, prefectureCode, visitedOn, mediaAltTexts]
+      description: 画像の差し替えはできない。代替テキストのみ変更できる
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        prefectureCode:
+          type: string
+          pattern: '^[0-4][0-9]$'
+        spotName:
+          type: string
+          maxLength: 100
+          nullable: true
+        visitedOn:
+          type: string
+          format: date
+        tags:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+            minLength: 1
+            maxLength: 50
+        mediaAltTexts:
+          type: array
+          description: 既にこの投稿に紐づいている画像の代替テキスト
+          items:
+            $ref: '#/components/schemas/MediaAltText'
+
+    PostMediaInput:
+      type: object
+      required: [mediaId, altText]
+      properties:
+        mediaId:
+          type: integer
+          format: int64
+        altText:
+          type: string
+          description: |
+            **必須。** 写真が主役のサービスで代替テキストを任意にすると
+            実質的に入力されず、画像が見えない利用者に何も伝わらなくなる。
+          minLength: 1
+          maxLength: 200
+
+    MediaAltText:
+      type: object
+      required: [mediaId, altText]
+      properties:
+        mediaId:
+          type: integer
+          format: int64
+        altText:
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    PostResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Post'
+
+    Post:
+      type: object
+      required:
+        [id, author, body, prefecture, visitedOn, media, tags, likeCount, commentCount, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        author:
+          $ref: '#/components/schemas/User'
+        body:
+          type: string
+        prefecture:
+          $ref: '#/components/schemas/Prefecture'
+        spotName:
+          type: string
+          nullable: true
+        visitedOn:
+          type: string
+          format: date
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/Media'
+        tags:
+          type: array
+          items:
+            type: string
+        likeCount:
+          type: integer
+        commentCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Media:
+      type: object
+      required: [id, altText, width, height, thumbUrl, mediumUrl]
+      properties:
+        id:
+          type: integer
+          format: int64
+        altText:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+        thumbUrl:
+          type: string
+          description: 長辺320px。一覧で使う
+        mediumUrl:
+          type: string
+          description: 長辺1080px。詳細で使う
 
     Prefecture:
       type: object
