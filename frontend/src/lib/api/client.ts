@@ -169,7 +169,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 	}
 }
 
-async function rawRequest<T>(path: string, options: Omit<RequestOptions, 'retryOnUnauthorized'>): Promise<T> {
+async function rawRequest<T>(
+	path: string,
+	options: Omit<RequestOptions, 'retryOnUnauthorized'>
+): Promise<T> {
 	const { method = 'GET', body, signal, csrf = false } = options;
 
 	const headers: Record<string, string> = {};

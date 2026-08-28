@@ -1,48 +1,50 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { request } from '$lib/api/client';
-	import type { components } from '$lib/api/gen';
+	import { listPosts, type Post } from '$lib/api/posts';
 	import { session } from '$lib/auth/session.svelte';
+	import PostCard from '$lib/components/PostCard.svelte';
 
-	// 型は docs/openapi.yaml から生成したものを使う。手で書くと、
-	// 仕様を変えたときに気づかないまま食い違う。
-	type Prefecture = components['schemas']['Prefecture'];
+	type State =
+		| { kind: 'loading' }
+		| { kind: 'ready'; posts: Post[]; nextCursor: string | null }
+		| { kind: 'error'; message: string };
 
-	type Result =
-		| { state: 'loading' }
-		| { state: 'ok'; prefectures: Prefecture[] }
-		| { state: 'error'; message: string };
+	let view = $state<State>({ kind: 'loading' });
+	let loadingMore = $state(false);
 
-	let result = $state<Result>({ state: 'loading' });
-
+	// 未ログインでは投稿を取得できない（フィードは認証を要する）。
+	// 復元が終わるまで待ってから判断する。
 	$effect(() => {
-		void load();
+		if (session.restored && session.isAuthenticated && view.kind === 'loading') {
+			void load();
+		}
 	});
 
 	async function load() {
-		result = { state: 'loading' };
 		try {
-			result = { state: 'ok', prefectures: await request<Prefecture[]>('/prefectures') };
+			const feed = await listPosts();
+			view = { kind: 'ready', posts: feed.posts, nextCursor: feed.nextCursor ?? null };
 		} catch {
-			result = { state: 'error', message: '都道府県の一覧を取得できませんでした' };
+			view = { kind: 'error', message: 'フィードを取得できませんでした' };
 		}
 	}
 
-	/**
-	 * 地方区分ごとにまとめる。
-	 *
-	 * API は JIS コード順で返し、同じ地方の県はその並びで連続する
-	 * （docs/er-diagram.md の prefectures マスタ）。そのため、
-	 * 地方が変わったところで区切るだけでまとまる。
-	 */
-	function groupByRegion(prefectures: Prefecture[]): { region: string; items: Prefecture[] }[] {
-		const groups: { region: string; items: Prefecture[] }[] = [];
-		for (const p of prefectures) {
-			const last = groups.at(-1);
-			if (last?.region === p.region) last.items.push(p);
-			else groups.push({ region: p.region, items: [p] });
+	async function loadMore() {
+		if (view.kind !== 'ready' || !view.nextCursor || loadingMore) return;
+		loadingMore = true;
+		try {
+			const feed = await listPosts(view.nextCursor);
+			view = {
+				kind: 'ready',
+				posts: [...view.posts, ...feed.posts],
+				nextCursor: feed.nextCursor ?? null
+			};
+		} catch {
+			// 追加読み込みの失敗で、既に表示している分まで消さない。
+			view = { ...view };
+		} finally {
+			loadingMore = false;
 		}
-		return groups;
 	}
 </script>
 
@@ -50,75 +52,105 @@
 	<title>tabi-log</title>
 </svelte:head>
 
-<h1>tabi-log</h1>
+{#if !session.restored}
+	<p>読み込んでいます…</p>
+{:else if !session.isAuthenticated}
+	<h1>tabi-log</h1>
+	<p>旅行先の写真と記録を共有する SNS です。</p>
+	<p>
+		<a href={resolve('/login')}>ログイン</a> または
+		<a href={resolve('/signup')}>新規登録</a> をしてください。
+	</p>
+{:else}
+	<div class="head">
+		<h1>新着</h1>
+		<a class="new-post" href={resolve('/posts/new')}>投稿する</a>
+	</div>
 
-<p>旅行先の写真と記録を共有する SNS です。現在は立ち上げ段階です。</p>
-
-{#if session.restored}
-	{#if session.isAuthenticated}
-		<p>
-			<strong>{session.user?.displayName}</strong>（@{session.user?.handle}）としてログインしています。
-		</p>
+	{#if view.kind === 'loading'}
+		<p>読み込んでいます…</p>
+	{:else if view.kind === 'error'}
+		<p class="error" role="alert"><span aria-hidden="true">✕</span> {view.message}</p>
+	{:else if view.posts.length === 0}
+		<!-- 何も出ない画面を作らない。次に何をすればよいかを示す。 -->
+		<div class="empty">
+			<p>まだ投稿がありません。</p>
+			<p><a href={resolve('/posts/new')}>最初の投稿をしてみましょう。</a></p>
+		</div>
 	{:else}
-		<p>
-			<a href={resolve("/login")}>ログイン</a> または <a href={resolve("/signup")}>新規登録</a> をしてください。
-		</p>
+		<ul class="feed">
+			{#each view.posts as post (post.id)}
+				<li><PostCard {post} /></li>
+			{/each}
+		</ul>
+
+		{#if view.nextCursor}
+			<!--
+				無限スクロールにはしない。キーボードと読み上げソフトでは
+				「いつ終わるか分からない」ものになり、末尾へ到達できなくなる。
+			-->
+			<button type="button" onclick={loadMore} disabled={loadingMore}>
+				{loadingMore ? '読み込んでいます…' : 'さらに読み込む'}
+			</button>
+		{/if}
 	{/if}
 {/if}
 
-<h2>投稿できる都道府県</h2>
-
-{#if result.state === 'loading'}
-	<p>読み込んでいます…</p>
-{:else if result.state === 'error'}
-	<p class="error" role="alert"><span aria-hidden="true">✕</span> {result.message}</p>
-{:else}
-	<p>{result.prefectures.length} 件</p>
-	<!-- 一覧は地方ごとにまとめて示す。全47件を並べると読み取りにくい。 -->
-	<ul class="regions">
-		{#each groupByRegion(result.prefectures) as group (group.region)}
-			<li>
-				<strong>{group.region}</strong>
-				<span>{group.items.map((p) => p.name).join('・')}</span>
-			</li>
-		{/each}
-	</ul>
-{/if}
-
 <style>
+	.head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-4);
+	}
+
 	h1 {
 		margin-top: 0;
+	}
+
+	.new-post {
+		padding: var(--space-2) var(--space-4);
+		font-weight: 600;
+		color: var(--color-accent-text);
+		background: var(--color-accent);
+		border-radius: var(--radius);
+		text-decoration: none;
+	}
+
+	.feed {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-6);
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.empty {
+		padding: var(--space-8) var(--space-4);
+		text-align: center;
+		border: 1px dashed var(--color-border);
+		border-radius: var(--radius);
 	}
 
 	.error {
 		color: var(--color-danger);
 	}
 
-	.regions {
-		list-style: none;
-		padding: 0;
-		margin: 0;
+	button {
+		display: block;
+		width: 100%;
+		margin-top: var(--space-6);
+		padding: var(--space-3);
+		font: inherit;
+		color: var(--color-text);
+		background: var(--color-surface);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius);
+		cursor: pointer;
 	}
 
-	.regions li {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2) var(--space-4);
-		padding: var(--space-3) var(--space-4);
-	}
-
-	.regions li + li {
-		border-top: 1px solid var(--color-border);
-	}
-
-	.regions strong {
-		flex: 0 0 6rem;
-	}
-
-	.regions span {
-		flex: 1;
-		color: var(--color-text-muted);
+	button:disabled {
+		cursor: progress;
 	}
 </style>

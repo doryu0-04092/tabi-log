@@ -1,0 +1,196 @@
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test, type Page } from '@playwright/test';
+import { PNG } from './fixtures/png';
+
+/** テストごとに衝突しない識別子を作る。 */
+function unique() {
+	const n = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+	return { email: `p${n}@example.test`, handle: `p_${n}`.slice(0, 30), password: 'password12345' };
+}
+
+async function signup(page: Page, displayName = 'たびびと') {
+	const user = unique();
+	await page.goto('/signup');
+	await page.getByLabel('メールアドレス').fill(user.email);
+	await page.getByLabel('ハンドル').fill(user.handle);
+	await page.getByLabel('表示名').fill(displayName);
+	await page.getByLabel('パスワード').fill(user.password);
+	await page.getByRole('button', { name: '登録する' }).click();
+	await expect(page.getByRole('button', { name: 'ログアウト' })).toBeVisible();
+	return user;
+}
+
+/** 投稿を1件作る。作成後の投稿詳細ページに遷移した状態で返す。 */
+async function createPost(page: Page, opts: { body: string; prefecture: string; alt: string }) {
+	await page.goto('/posts/new');
+
+	// 画像を選ぶ。実ファイルを置かずにメモリ上のバイト列を渡す。
+	await page.setInputFiles('#photos', {
+		name: 'photo.png',
+		mimeType: 'image/png',
+		buffer: PNG
+	});
+
+	// **送信が終わっても、まだ投稿には使えない。**
+	// 形式の検証と EXIF の除去がサーバー側で走り、
+	// 完了して初めて「使えます」になる。
+	await expect(page.getByText('使えます')).toBeVisible({ timeout: 30_000 });
+
+	await page.getByLabel('画像1の説明（必須）').fill(opts.alt);
+	await page.getByLabel('都道府県（必須）').selectOption({ label: opts.prefecture });
+	await page.getByLabel('訪問日（必須）').fill('2026-05-03');
+	await page.getByLabel('本文（必須）').fill(opts.body);
+	await page.getByRole('button', { name: '投稿する' }).click();
+
+	await expect(page).toHaveURL(/\/posts\/\d+$/);
+}
+
+test.describe('投稿', () => {
+	test('画像を選んで投稿でき、詳細に表示される', async ({ page }) => {
+		await signup(page, '投稿する人');
+		await createPost(page, {
+			body: '函館の朝市で海鮮丼を食べた',
+			prefecture: '北海道',
+			alt: '海鮮丼の写真'
+		});
+
+		await expect(page.getByText('函館の朝市で海鮮丼を食べた')).toBeVisible();
+		await expect(page.getByText('北海道').first()).toBeVisible();
+		await expect(page.getByText('訪問 2026年5月3日')).toBeVisible();
+		// 代替テキストが画像に付いていること。
+		await expect(page.getByAltText('海鮮丼の写真')).toBeVisible();
+	});
+
+	// **処理が終わる前は投稿させない。**
+	// 送信直後は「準備しています」であり、送信ボタンは押せない。
+	test('画像の準備が終わるまで投稿ボタンを押せない', async ({ page }) => {
+		await signup(page);
+		await page.goto('/posts/new');
+
+		const submit = page.getByRole('button', { name: '投稿する' });
+		await expect(submit).toBeDisabled();
+
+		await page.setInputFiles('#photos', {
+			name: 'photo.png',
+			mimeType: 'image/png',
+			buffer: PNG
+		});
+
+		// 準備が終わるまで押せないままであること。
+		await expect(submit).toBeDisabled();
+		await expect(page.getByText('使えます')).toBeVisible({ timeout: 30_000 });
+		await expect(submit).toBeEnabled();
+	});
+
+	test('代替テキストが空だと投稿できない', async ({ page }) => {
+		await signup(page);
+		await page.goto('/posts/new');
+		await page.setInputFiles('#photos', {
+			name: 'photo.png',
+			mimeType: 'image/png',
+			buffer: PNG
+		});
+		await expect(page.getByText('使えます')).toBeVisible({ timeout: 30_000 });
+
+		await page.getByLabel('都道府県（必須）').selectOption({ label: '東京都' });
+		await page.getByLabel('訪問日（必須）').fill('2026-05-03');
+		await page.getByLabel('本文（必須）').fill('説明を入れずに投稿する');
+		await page.getByRole('button', { name: '投稿する' }).click();
+
+		await expect(page.getByRole('alert')).toContainText('代替テキスト');
+		await expect(page).toHaveURL('/posts/new');
+	});
+
+	// 訪問日は「行った記録」なので未来を選べてはいけない。
+	test('訪問日に未来を選べない', async ({ page }) => {
+		await signup(page);
+		await page.goto('/posts/new');
+
+		const today = new Date().toISOString().slice(0, 10);
+		await expect(page.getByLabel('訪問日（必須）')).toHaveAttribute('max', today);
+	});
+
+	test('投稿がフィードに出る', async ({ page }) => {
+		await signup(page, 'フィード確認');
+
+		// **本文は実行ごとに一意にする。** 固定の文言だと、過去の実行で作られた
+		// 投稿とも一致し、セレクタが複数の要素を掴んで落ちる。
+		const body = `フィードに出るはずの投稿 ${Date.now()}`;
+		const alt = `沖縄の海 ${Date.now()}`;
+
+		await createPost(page, { body, prefecture: '沖縄県', alt });
+
+		await page.goto('/');
+		await expect(page.getByText(body)).toBeVisible();
+		await expect(page.getByAltText(alt)).toBeVisible();
+	});
+
+	test('自分の投稿は削除できる', async ({ page }) => {
+		await signup(page);
+		await createPost(page, { body: '削除する投稿', prefecture: '京都府', alt: '京都の写真' });
+
+		await page.getByRole('button', { name: 'この投稿を削除する' }).click();
+		// 取り消せない操作なので一段挟む。
+		await expect(page.getByRole('alert')).toContainText('取り消せません');
+		await page.getByRole('button', { name: '削除する' }).click();
+
+		await expect(page).toHaveURL('/');
+		await expect(page.getByText('削除する投稿')).toBeHidden();
+	});
+
+	// 他人の投稿には削除ボタンを出さない。
+	// （権限の担保はサーバー側で行っており、これは表示の確認）
+	test('他人の投稿には削除ボタンが出ない', async ({ page, browser, baseURL }) => {
+		await signup(page, '投稿者');
+		await createPost(page, { body: '他人が見る投稿', prefecture: '大阪府', alt: '大阪の写真' });
+		const url = page.url();
+
+		// **別のブラウザコンテキストで開く。** 同じコンテキストだと Cookie を共有し、
+		// 「別の利用者」になっていないのに気づけないまま通ってしまう。
+		const otherContext = await browser.newContext({ baseURL });
+		const other = await otherContext.newPage();
+		await other.goto('/signup');
+		const u = unique();
+		await other.getByLabel('メールアドレス').fill(u.email);
+		await other.getByLabel('ハンドル').fill(u.handle);
+		await other.getByLabel('表示名').fill('別の人');
+		await other.getByLabel('パスワード').fill(u.password);
+		await other.getByRole('button', { name: '登録する' }).click();
+
+		// **「ログアウト」が見えるだけでは前提の確認にならない。**
+		// 既存のセッションが復元されただけでも見えてしまう。
+		// 意図した利用者になっていることを名前で確かめる。
+		await expect(
+			other.getByRole('navigation', { name: 'アカウント' }).getByText('別の人')
+		).toBeVisible();
+
+		await other.goto(url);
+		await expect(other.getByText('他人が見る投稿')).toBeVisible();
+		await expect(other.getByRole('button', { name: 'この投稿を削除する' })).toBeHidden();
+
+		await otherContext.close();
+	});
+
+	test('投稿作成画面にアクセシビリティ違反が無い', async ({ page }) => {
+		await signup(page);
+		await page.goto('/posts/new');
+		await expect(page.getByRole('heading', { name: '投稿する', level: 1 })).toBeVisible();
+
+		const results = await new AxeBuilder({ page })
+			.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+			.analyze();
+
+		expect(results.violations).toEqual([]);
+	});
+
+	test('投稿詳細にアクセシビリティ違反が無い', async ({ page }) => {
+		await signup(page);
+		await createPost(page, { body: '検査用の投稿', prefecture: '長野県', alt: '長野の写真' });
+
+		const results = await new AxeBuilder({ page })
+			.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+			.analyze();
+
+		expect(results.violations).toEqual([]);
+	});
+});

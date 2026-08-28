@@ -9,7 +9,11 @@ function nav(page: Page) {
 /** テストごとに衝突しない識別子を作る。 */
 function unique() {
 	const n = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
-	return { email: `e2e${n}@example.test`, handle: `e2e_${n}`.slice(0, 30), password: 'password12345' };
+	return {
+		email: `e2e${n}@example.test`,
+		handle: `e2e_${n}`.slice(0, 30),
+		password: 'password12345'
+	};
 }
 
 async function signup(page: Page, user: ReturnType<typeof unique>, displayName = 'たびびと') {

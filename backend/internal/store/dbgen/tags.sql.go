@@ -8,6 +8,7 @@ package dbgen
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const attachTagToPost = `-- name: AttachTagToPost :exec
@@ -55,6 +56,53 @@ func (q *Queries) ListTagsByPostID(ctx context.Context, postID uint64) ([]string
 			return nil, err
 		}
 		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTagsByPostIDs = `-- name: ListTagsByPostIDs :many
+SELECT pt.post_id, t.name
+FROM tags t
+JOIN post_tags pt ON pt.tag_id = t.id
+WHERE pt.post_id IN (/*SLICE:post_ids*/?)
+ORDER BY pt.post_id, t.name
+`
+
+type ListTagsByPostIDsRow struct {
+	PostID uint64
+	Name   string
+}
+
+// 複数の投稿のタグをまとめて取る（N+1 を避けるため）。
+func (q *Queries) ListTagsByPostIDs(ctx context.Context, postIds []uint64) ([]ListTagsByPostIDsRow, error) {
+	query := listTagsByPostIDs
+	var queryParams []interface{}
+	if len(postIds) > 0 {
+		for _, v := range postIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:post_ids*/?", strings.Repeat(",?", len(postIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:post_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTagsByPostIDsRow{}
+	for rows.Next() {
+		var i ListTagsByPostIDsRow
+		if err := rows.Scan(&i.PostID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

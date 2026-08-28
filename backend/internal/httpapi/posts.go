@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -51,7 +52,9 @@ type PostRepository interface {
 	UpdatePost(ctx context.Context, in store.UpdatePostInput) error
 	DeletePost(ctx context.Context, postID, userID uint64) ([]string, error)
 	PostOwner(ctx context.Context, postID uint64) (uint64, error)
+	FindMediaByID(ctx context.Context, mediaID uint64) (store.MediaRecord, error)
 	GetPost(ctx context.Context, postID uint64, signer storage.URLSigner, ttl time.Duration) (domain.Post, error)
+	ListFeed(ctx context.Context, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
 }
 
 // ObjectStorage は画像の保存先。
@@ -506,4 +509,93 @@ func trimOptional(v *string) *string {
 // 日付だけを JSON へ書き出す（YYYY-MM-DD）。
 func openapiDate(t time.Time) openapi_types.Date {
 	return openapi_types.Date{Time: t}
+}
+
+// ---------------------------------------------------------------------------
+// 新着フィード
+// ---------------------------------------------------------------------------
+
+// defaultFeedLimit / maxFeedLimit は1回に返す件数。
+const (
+	defaultFeedLimit = 20
+	maxFeedLimit     = 50
+)
+
+func (h *postHandler) ListPosts(w http.ResponseWriter, r *http.Request, params gen.ListPostsParams) {
+	limit := defaultFeedLimit
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	if limit < 1 || limit > maxFeedLimit {
+		writeError(w, r, http.StatusBadRequest, "validation_error", "取得件数の指定が不正です")
+		return
+	}
+
+	var cursor uint64
+	if params.Cursor != nil && *params.Cursor != "" {
+		v, err := strconv.ParseUint(*params.Cursor, 10, 64)
+		if err != nil {
+			// カーソルは前回の応答をそのまま渡す値である。
+			// 解釈できないものは受け付けず、先頭から返してごまかさない。
+			writeError(w, r, http.StatusBadRequest, "validation_error", "カーソルの指定が不正です")
+			return
+		}
+		cursor = v
+	}
+
+	posts, next, err := h.repo.ListFeed(r.Context(), cursor, limit, h.storage, displayURLTTL)
+	if err != nil {
+		h.internalError(w, r, "フィードの取得に失敗した", err)
+		return
+	}
+
+	items := make([]gen.Post, 0, len(posts))
+	for _, p := range posts {
+		items = append(items, toAPIPost(p))
+	}
+
+	var body gen.PostListResponse
+	body.Data.Posts = items
+	if next != 0 {
+		s := strconv.FormatUint(next, 10)
+		body.Data.NextCursor = &s
+	}
+	writeJSON(w, r, http.StatusOK, body.Data)
+}
+
+// ---------------------------------------------------------------------------
+// 画像の処理状況
+// ---------------------------------------------------------------------------
+
+// GetMediaStatus は画像の処理が終わったかを返す。
+//
+// S3 への送信が終わっても、形式の検証・EXIF の除去・変換が終わるまでは
+// 投稿に使えない。その処理は非同期に走るため、クライアントが完了を
+// 知る手段としてこの経路を用意している。
+func (h *postHandler) GetMediaStatus(w http.ResponseWriter, r *http.Request, mediaID int64) {
+	userID, ok := UserIDFrom(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "unauthenticated", "ログインが必要です")
+		return
+	}
+
+	rec, err := h.repo.FindMediaByID(r.Context(), uint64(mediaID))
+	if errors.Is(err, store.ErrMediaNotFound) {
+		writeError(w, r, http.StatusNotFound, "not_found", "画像が見つかりません")
+		return
+	}
+	if err != nil {
+		h.internalError(w, r, "画像の記録を取得できない", err)
+		return
+	}
+	// 他人がアップロードした画像の状態は返さない。
+	if rec.UserID != userID {
+		writeError(w, r, http.StatusForbidden, "forbidden", "この画像を参照する権限がありません")
+		return
+	}
+
+	var body gen.MediaStatusResponse
+	body.Data.MediaId = int64(rec.ID)
+	body.Data.Status = gen.MediaStatusResponseDataStatus(rec.Status)
+	writeJSON(w, r, http.StatusOK, body.Data)
 }

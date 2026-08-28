@@ -239,7 +239,86 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
 
+  /media/{mediaId}:
+    get:
+      tags: [posts]
+      operationId: getMediaStatus
+      summary: 画像の処理状況
+      description: |
+        アップロードした画像の処理が終わったかを返す。
+
+        **S3 への送信が終わっても、すぐには投稿に使えない。** 形式の検証・
+        EXIF の除去・表示用の変換が終わって `processed` になる必要がある。
+        その処理は S3 のイベントで非同期に走るため、**クライアントは
+        完了を知る手段を持たない**。この経路がその手段になる。
+
+        これが無いと、画面は「送信が終わった」時点で投稿できると誤解し、
+        サーバーに拒否されて初めて分かることになる。
+
+        自分がアップロードした画像のみ参照できる。
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '200':
+          description: 処理状況
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /posts:
+    get:
+      tags: [posts]
+      operationId: listPosts
+      summary: 新着フィード
+      description: |
+        全利用者の投稿を投稿日の新しい順に返す。
+
+        **カーソルページネーションを使う。** `OFFSET` は深いページで
+        件数分を読み飛ばすため劣化する。前回の最後の投稿を指す `cursor` を
+        渡すと、その続きから返す。
+
+        並び順は**投稿日**であり訪問日ではない。旅行から帰ったあとに
+        まとめて投稿するのが自然な使われ方であり、フィードは
+        「新しく共有されたもの」を見せる場だからである。
+        訪問日順で見せるのはプロフィールの旅行履歴の役割になる。
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: 前回の応答の `nextCursor`。省略すると先頭から返す
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: 投稿の一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
     post:
       tags: [posts]
       operationId: createPost
@@ -772,12 +851,53 @@ components:
           minLength: 1
           maxLength: 200
 
+    MediaStatusResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [mediaId, status]
+          properties:
+            mediaId:
+              type: integer
+              format: int64
+            status:
+              type: string
+              description: |
+                `pending`   … 署名付きURLを発行したが、まだ届いていない
+                `uploaded`  … 届いたが処理中
+                `processed` … **投稿に使える**
+                `failed`    … 画像として扱えなかった。投稿には使えない
+              enum: [pending, uploaded, processed, failed]
+
     PostResponse:
       type: object
       required: [data]
       properties:
         data:
           $ref: '#/components/schemas/Post'
+
+    PostListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [posts]
+          properties:
+            posts:
+              type: array
+              items:
+                $ref: '#/components/schemas/Post'
+            nextCursor:
+              type: string
+              nullable: true
+              description: |
+                次のページを取るときに `cursor` として渡す。
+                **これ以上無い場合は null になる。** 空文字ではなく null に
+                しているのは、「続きがない」ことを呼び出し側が
+                真偽で判定できるようにするためである。
 
     Post:
       type: object

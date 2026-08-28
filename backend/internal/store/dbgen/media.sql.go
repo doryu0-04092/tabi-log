@@ -8,6 +8,7 @@ package dbgen
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const attachMediaToPost = `-- name: AttachMediaToPost :execresult
@@ -212,6 +213,66 @@ func (q *Queries) ListMediaByPostID(ctx context.Context, postID sql.NullInt64) (
 	return items, nil
 }
 
+const listMediaByPostIDs = `-- name: ListMediaByPostIDs :many
+SELECT id, post_id, alt_text, width, height, s3_key
+FROM media
+WHERE post_id IN (/*SLICE:post_ids*/?)
+ORDER BY post_id, sort_order, id
+`
+
+type ListMediaByPostIDsRow struct {
+	ID      uint64
+	PostID  sql.NullInt64
+	AltText sql.NullString
+	Width   sql.NullInt32
+	Height  sql.NullInt32
+	S3Key   string
+}
+
+// 複数の投稿の画像をまとめて取る。
+//
+// **投稿ごとに問い合わせない（N+1 を作らない）。** フィードは1画面で
+// 20件返すため、投稿ごとに画像を引くと 20 回の往復になる。
+func (q *Queries) ListMediaByPostIDs(ctx context.Context, postIds []sql.NullInt64) ([]ListMediaByPostIDsRow, error) {
+	query := listMediaByPostIDs
+	var queryParams []interface{}
+	if len(postIds) > 0 {
+		for _, v := range postIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:post_ids*/?", strings.Repeat(",?", len(postIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:post_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMediaByPostIDsRow{}
+	for rows.Next() {
+		var i ListMediaByPostIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PostID,
+			&i.AltText,
+			&i.Width,
+			&i.Height,
+			&i.S3Key,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMediaKeysByPostID = `-- name: ListMediaKeysByPostID :many
 SELECT m.s3_key AS s3_key
 FROM media m
@@ -279,6 +340,62 @@ func (q *Queries) ListVariantsByPostID(ctx context.Context, postID sql.NullInt64
 		var i ListVariantsByPostIDRow
 		if err := rows.Scan(
 			&i.MediaID,
+			&i.Kind,
+			&i.S3Key,
+			&i.Width,
+			&i.Height,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVariantsByPostIDs = `-- name: ListVariantsByPostIDs :many
+SELECT v.media_id, m.post_id, v.kind, v.s3_key, v.width, v.height
+FROM media_variants v
+JOIN media m ON m.id = v.media_id
+WHERE m.post_id IN (/*SLICE:post_ids*/?)
+`
+
+type ListVariantsByPostIDsRow struct {
+	MediaID uint64
+	PostID  sql.NullInt64
+	Kind    MediaVariantsKind
+	S3Key   string
+	Width   uint32
+	Height  uint32
+}
+
+func (q *Queries) ListVariantsByPostIDs(ctx context.Context, postIds []sql.NullInt64) ([]ListVariantsByPostIDsRow, error) {
+	query := listVariantsByPostIDs
+	var queryParams []interface{}
+	if len(postIds) > 0 {
+		for _, v := range postIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:post_ids*/?", strings.Repeat(",?", len(postIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:post_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListVariantsByPostIDsRow{}
+	for rows.Next() {
+		var i ListVariantsByPostIDsRow
+		if err := rows.Scan(
+			&i.MediaID,
+			&i.PostID,
 			&i.Kind,
 			&i.S3Key,
 			&i.Width,

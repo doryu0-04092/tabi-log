@@ -1,0 +1,11 @@
+# 生成物。入力（docs/openapi.yaml）を直して再生成する。
+src/lib/api/gen.ts
+
+# 実行時に作られるもの。
+build/
+.svelte-kit/
+node_modules/
+test-results/
+playwright-report/
+screenshots/
+package-lock.json

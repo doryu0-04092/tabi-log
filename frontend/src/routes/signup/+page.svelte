@@ -116,4 +116,4 @@
 	</button>
 </form>
 
-<p>すでにアカウントをお持ちの場合は <a href={resolve("/login")}>ログイン</a> へ。</p>
+<p>すでにアカウントをお持ちの場合は <a href={resolve('/login')}>ログイン</a> へ。</p>

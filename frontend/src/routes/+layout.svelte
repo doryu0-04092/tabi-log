@@ -32,7 +32,7 @@
 <a class="skip-link" href="#main">本文へスキップ</a>
 
 <header>
-	<a class="brand" href={resolve("/")}>tabi-log</a>
+	<a class="brand" href={resolve('/')}>tabi-log</a>
 
 	<nav aria-label="アカウント">
 		<!--
@@ -44,7 +44,7 @@
 				<span class="who">{session.user?.displayName}</span>
 				<button type="button" onclick={handleLogout}>ログアウト</button>
 			{:else if page.url.pathname !== '/login' && page.url.pathname !== '/signup'}
-				<a href={resolve("/login")}>ログイン</a>
+				<a href={resolve('/login')}>ログイン</a>
 			{/if}
 		{/if}
 	</nav>

@@ -66,7 +66,10 @@ export async function signup(input: {
 	displayName: string;
 	password: string;
 }): Promise<void> {
-	const data = await request<AuthPayload>('/auth/signup', { method: 'POST', body: input });
+	const data = await request<AuthPayload>('/auth/signup', {
+		method: 'POST',
+		body: input
+	});
 	applySession(data);
 }
 
