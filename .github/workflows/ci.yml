@@ -87,12 +87,18 @@ jobs:
       - name: マイグレーションを適用する
         run: DB_NAME=tabilog_test docker compose run --rm migrate up
 
+      # **-p 1 でパッケージを直列に回す。** 既定では別パッケージの
+      # テストが同時に走るが、どちらも同じデータベースを空にしてから
+      # 使うため、互いのデータを消し合う。実際に CI で
+      # 「入れたはずの利用者が居ない」形で表面化した。
       - name: データベースを使うテスト
         working-directory: backend
         env:
-          # CI では未設定だと失敗する（黙って飛ばさせないため）。
           TEST_DB_DSN: tabilog:change_me_local_only@tcp(127.0.0.1:3306)/tabilog_test?parseTime=true&loc=UTC&multiStatements=true
-        run: go test -count=1 ./internal/store/... ./internal/search/...
+          # 用意した側が名乗る。これが立っていて DSN が無ければ失敗する
+          # （黙って飛ばして緑になるのを防ぐ）。
+          TEST_DB_REQUIRED: "1"
+        run: go test -count=1 -p 1 ./internal/store/... ./internal/search/...
 
       - name: 失敗時のログ
         if: failure()

@@ -32,8 +32,9 @@ var skipReason string
 func TestMain(m *testing.M) {
 	dsn := os.Getenv("TEST_DB_DSN")
 	if dsn == "" {
-		if os.Getenv("CI") != "" {
-			fmt.Fprintln(os.Stderr, "CI では TEST_DB_DSN が必須である")
+		// 条件については internal/store/main_test.go の説明を参照。
+		if os.Getenv("TEST_DB_REQUIRED") != "" {
+			fmt.Fprintln(os.Stderr, "TEST_DB_REQUIRED が立っているのに TEST_DB_DSN が無い")
 			os.Exit(1)
 		}
 		skipReason = "TEST_DB_DSN が未設定のため実行しない"

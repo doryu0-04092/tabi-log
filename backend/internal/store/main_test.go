@@ -59,11 +59,16 @@ func TestMain(m *testing.M) {
 	dsn := os.Getenv("TEST_DB_DSN")
 
 	if dsn == "" {
-		// **CI では飛ばさせない。** 飛ばして緑になると、
-		// 「実行された」と「実行できる状態にすらない」を区別できなくなる。
-		if os.Getenv("CI") != "" {
+		// **データベースを用意した実行では飛ばさせない。**
+		// 飛ばして緑になると、「実行された」と「実行できる状態にすら
+		// ない」を区別できなくなる。
+		//
+		// 条件を CI かどうかにはしない。CI にはデータベースを
+		// 用意しないジョブ（go test ./... を回すもの）もあり、
+		// そちらまで失敗させることになる。**用意した側が名乗る。**
+		if os.Getenv("TEST_DB_REQUIRED") != "" {
 			fmt.Fprintln(os.Stderr,
-				"CI では TEST_DB_DSN が必須である。データベースを用意してから実行すること")
+				"TEST_DB_REQUIRED が立っているのに TEST_DB_DSN が無い。データベースを用意してから実行すること")
 			os.Exit(1)
 		}
 		skipReason = "TEST_DB_DSN が未設定のため実行しない（実行方法は main_test.go の冒頭）"
