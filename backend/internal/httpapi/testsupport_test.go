@@ -537,6 +537,11 @@ type stubAccountRepo struct {
 	deletedFor    []uint64
 	deleteKeys    []string
 	deleteErr     error
+
+	avatarErr    error
+	setAvatarIDs []uint64
+	clearedFor   []uint64
+	avatarKeys   map[uint64]string
 }
 
 func (s *stubAccountRepo) Current(context.Context, uint64) (domain.User, error) {
@@ -607,4 +612,25 @@ func mustDate(t *testing.T, s string) time.Time {
 		t.Fatalf("日付を解釈できない: %v", err)
 	}
 	return d
+}
+
+// アバターの操作。stubAccountRepo が AvatarRepository も兼ねる。
+func (s *stubAccountRepo) SetAvatar(_ context.Context, _, mediaID uint64) error {
+	if s.avatarErr != nil {
+		return s.avatarErr
+	}
+	s.setAvatarIDs = append(s.setAvatarIDs, mediaID)
+	return nil
+}
+
+func (s *stubAccountRepo) ClearAvatar(_ context.Context, userID uint64) error {
+	s.clearedFor = append(s.clearedFor, userID)
+	return nil
+}
+
+func (s *stubAccountRepo) AvatarKeys(context.Context, []uint64) (map[uint64]string, error) {
+	if s.avatarKeys == nil {
+		return map[uint64]string{}, nil
+	}
+	return s.avatarKeys, nil
 }

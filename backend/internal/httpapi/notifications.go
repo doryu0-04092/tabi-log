@@ -31,9 +31,10 @@ type NotificationRepository interface {
 }
 
 type notificationHandler struct {
-	repo   NotificationRepository
-	logger *slog.Logger
-	now    func() time.Time
+	repo    NotificationRepository
+	avatars *avatarResolver
+	logger  *slog.Logger
+	now     func() time.Time
 }
 
 func (h *notificationHandler) ListNotifications(w http.ResponseWriter, r *http.Request, params gen.ListNotificationsParams) {
@@ -62,6 +63,12 @@ func (h *notificationHandler) ListNotifications(w http.ResponseWriter, r *http.R
 	for _, n := range items {
 		out = append(out, toAPINotification(n))
 	}
+
+	actors := make([]*gen.User, 0, len(out))
+	for i := range out {
+		actors = append(actors, &out[i].Actor)
+	}
+	h.avatars.fill(r.Context(), actors)
 
 	var body gen.NotificationListResponse
 	body.Data.Notifications = out

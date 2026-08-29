@@ -76,6 +76,68 @@ func (s *AccountStore) UpdateProfile(ctx context.Context, userID uint64, display
 	}, nil
 }
 
+// ErrAvatarNotUsable は指定された画像をアバターに使えないことを表す。
+//
+// 他人の画像・処理が終わっていない画像・既に投稿で使われている画像を
+// 区別せず1つのエラーにしている。**区別して返すと、他人の画像の ID を
+// 総当たりして「存在するか」「処理済みか」を調べられる**ためである
+// （投稿への紐づけと同じ理由）。
+var ErrAvatarNotUsable = errors.New("指定された画像をアバターに使えない")
+
+// SetAvatar はアバターを設定する。
+//
+// **条件は SQL 側に置いている。** SELECT で確かめてから UPDATE すると、
+// その間に同じ画像が投稿へ紐づけられる余地が残る。
+func (s *AccountStore) SetAvatar(ctx context.Context, userID, mediaID uint64) error {
+	res, err := s.q.SetAvatar(ctx, dbgen.SetAvatarParams{
+		AvatarMediaID: sql.NullInt64{Int64: int64(mediaID), Valid: true},
+		ID:            userID,
+		ID_2:          mediaID,
+		UserID:        userID,
+	})
+	if err != nil {
+		return fmt.Errorf("アバターの設定に失敗した: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("アバターの設定結果を確認できない: %w", err)
+	}
+	if n == 0 {
+		// **既に同じ画像が設定されていても 0 件になる。**
+		// 使えない場合と区別できないが、どちらも「変わらない」という
+		// 結果は同じであり、呼び出し側は冪等に扱える。
+		return ErrAvatarNotUsable
+	}
+	return nil
+}
+
+// ClearAvatar はアバターを外す。
+func (s *AccountStore) ClearAvatar(ctx context.Context, userID uint64) error {
+	if err := s.q.ClearAvatar(ctx, userID); err != nil {
+		return fmt.Errorf("アバターの解除に失敗した: %w", err)
+	}
+	return nil
+}
+
+// AvatarKeys は利用者ごとのアバター画像（thumb）の鍵を返す。
+//
+// **一覧で1件ずつ引かない。** フィード20件それぞれに問い合わせると
+// 20回の往復になる。いいねの状態と同じ考え方である。
+func (s *AccountStore) AvatarKeys(ctx context.Context, userIDs []uint64) (map[uint64]string, error) {
+	if len(userIDs) == 0 {
+		return map[uint64]string{}, nil
+	}
+	rows, err := s.q.ListAvatarKeys(ctx, userIDs)
+	if err != nil {
+		return nil, fmt.Errorf("アバターの鍵を取得できない: %w", err)
+	}
+	out := make(map[uint64]string, len(rows))
+	for _, r := range rows {
+		out[r.UserID] = r.S3Key
+	}
+	return out, nil
+}
+
 // Credentials はパスワードの照合に使う現在のハッシュを返す。
 //
 // **照合そのものは上位層で行う。** bcrypt の比較を store に置くと、

@@ -6,6 +6,7 @@
 		MAX_COMMENT_LENGTH,
 		type Comment
 	} from '$lib/api/reactions';
+	import Avatar from '$lib/components/Avatar.svelte';
 
 	let { postId }: { postId: number } = $props();
 
@@ -121,6 +122,11 @@
 				{#each view.comments as comment (comment.id)}
 					<li>
 						<div class="head">
+							<Avatar
+								url={comment.author.avatarUrl}
+								displayName={comment.author.displayName}
+								size="small"
+							/>
 							<span class="name">{comment.author.displayName}</span>
 							<span class="handle">@{comment.author.handle}</span>
 							<time datetime={comment.createdAt}>{formatCreatedAt(comment.createdAt)}</time>

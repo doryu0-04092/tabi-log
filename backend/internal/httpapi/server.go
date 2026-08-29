@@ -89,6 +89,10 @@ func NewRouter(deps Deps) http.Handler {
 		writeError(w, r, http.StatusNotFound, "not_found", "エンドポイントが存在しません")
 	})
 
+	// アバターは投稿・コメント・通知・一覧のどこにも出てくる。
+	// 引き方を1つに寄せ、各ハンドラは同じものを使う。
+	avatars := &avatarResolver{repo: deps.Account, storage: deps.Storage, logger: deps.Logger}
+
 	srv := &server{
 		healthHandler:     &healthHandler{db: deps.DB, logger: deps.Logger},
 		prefectureHandler: &prefectureHandler{store: deps.Prefectures, logger: deps.Logger},
@@ -106,19 +110,22 @@ func NewRouter(deps Deps) http.Handler {
 			repo:    deps.Posts,
 			storage: deps.Storage,
 			likes:   deps.Reactions,
+			avatars: avatars,
 			logger:  deps.Logger,
 			now:     time.Now,
 		},
 		reactionHandler: &reactionHandler{
-			repo:   deps.Reactions,
-			posts:  deps.Posts,
-			logger: deps.Logger,
+			repo:    deps.Reactions,
+			posts:   deps.Posts,
+			avatars: avatars,
+			logger:  deps.Logger,
 		},
 		userHandler: &userHandler{
 			repo:    deps.Follows,
 			posts:   deps.Posts,
 			likes:   deps.Reactions,
 			storage: deps.Storage,
+			avatars: avatars,
 			logger:  deps.Logger,
 		},
 		accountHandler: &accountHandler{
@@ -127,14 +134,16 @@ func NewRouter(deps Deps) http.Handler {
 			likes:   deps.Reactions,
 			follows: deps.Follows,
 			storage: deps.Storage,
+			avatars: avatars,
 			opts:    deps.AuthOptions,
 			logger:  deps.Logger,
 			now:     time.Now,
 		},
 		notificationHandler: &notificationHandler{
-			repo:   deps.Notifications,
-			logger: deps.Logger,
-			now:    time.Now,
+			repo:    deps.Notifications,
+			avatars: avatars,
+			logger:  deps.Logger,
+			now:     time.Now,
 		},
 		searchHandler: &searchHandler{
 			repo:    deps.Search,
@@ -142,6 +151,7 @@ func NewRouter(deps Deps) http.Handler {
 			likes:   deps.Reactions,
 			follows: deps.Follows,
 			storage: deps.Storage,
+			avatars: avatars,
 			logger:  deps.Logger,
 		},
 	}

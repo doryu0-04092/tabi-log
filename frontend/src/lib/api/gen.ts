@@ -323,6 +323,39 @@ export interface paths {
         patch: operations["updateProfile"];
         trace?: never;
     };
+    "/users/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * アバターを設定する
+         * @description **画像は投稿と同じ経路で先にアップロードする**
+         *     （`/media/presign` → S3 へ直接 PUT → 処理の完了を待つ）。
+         *     アバターにも EXIF の除去が要るため、経路を分けない。
+         *
+         *     使えるのは、**自分がアップロードし、処理が完了しており、
+         *     まだどの投稿にも使われていない**画像に限る。
+         *     条件に合わなければ 400 を返す。**理由は区別しない**
+         *     （他人の画像の ID を総当たりして存在を調べられないようにするため）。
+         */
+        put: operations["setAvatar"];
+        post?: never;
+        /**
+         * アバターを外す
+         * @description **冪等である。** 設定していなくても 204 を返す。
+         *
+         *     画像そのものは消さない。退会時にまとめて削除する。
+         */
+        delete: operations["clearAvatar"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/me/password": {
         parameters: {
             query?: never;
@@ -974,6 +1007,11 @@ export interface components {
             /** @example たびびと */
             displayName: string;
             bio?: string | null;
+            /**
+             * @description アバターの表示用URL（署名付き、有効期間つき）。
+             *     設定していなければ null。**画面は必ず未設定の場合を描けること。**
+             */
+            avatarUrl?: string | null;
         };
         /** @description 一覧に並べる利用者。フォローの導線を出すための状態を含む */
         UserSummary: {
@@ -982,6 +1020,8 @@ export interface components {
             handle: string;
             displayName: string;
             bio?: string | null;
+            /** @description アバターの表示用URL。設定していなければ null */
+            avatarUrl?: string | null;
             /** @description 閲覧者がこの利用者をフォローしているか */
             isFollowing: boolean;
             /** @description 閲覧者自身か。自分にフォローの導線を出さないために使う */
@@ -993,6 +1033,8 @@ export interface components {
             handle: string;
             displayName: string;
             bio?: string | null;
+            /** @description アバターの表示用URL。設定していなければ null */
+            avatarUrl?: string | null;
             postCount: number;
             followingCount: number;
             followerCount: number;
@@ -1019,6 +1061,13 @@ export interface components {
             displayName?: string;
             /** @description 空文字を送ると消す。省略した場合は変えない */
             bio?: string;
+        };
+        SetAvatarRequest: {
+            /**
+             * Format: int64
+             * @description アップロードして処理が完了した画像のID
+             */
+            mediaId: number;
         };
         ChangePasswordRequest: {
             currentPassword: string;
@@ -1751,6 +1800,49 @@ export interface operations {
                 };
             };
             400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    setAvatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAvatarRequest"];
+            };
+        };
+        responses: {
+            /** @description 設定した */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    clearAvatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 外した（設定していなかった場合も含む） */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             401: components["responses"]["Unauthenticated"];
         };
     };

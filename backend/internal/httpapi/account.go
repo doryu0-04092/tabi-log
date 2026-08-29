@@ -28,6 +28,8 @@ type AccountRepository interface {
 	Credentials(ctx context.Context, userID uint64) (string, error)
 	ChangePassword(ctx context.Context, userID uint64, newHash string, now time.Time) error
 	DeleteAccount(ctx context.Context, userID uint64, now time.Time) ([]string, error)
+
+	AvatarRepository
 }
 
 type accountHandler struct {
@@ -36,6 +38,7 @@ type accountHandler struct {
 	likes   ReactionRepository
 	follows FollowRepository
 	storage ObjectStorage
+	avatars *avatarResolver
 	opts    AuthOptions
 	logger  *slog.Logger
 	now     func() time.Time
@@ -102,7 +105,9 @@ func (h *accountHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, r, http.StatusOK, toAPIUser(updated))
+	out := toAPIUser(updated)
+	h.avatars.fillOne(r.Context(), &out)
+	writeJSON(w, r, http.StatusOK, out)
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +227,7 @@ func (h *accountHandler) ListUserTravels(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	writeFeedPage(w, r, h.likes, h.logger, params.Limit,
+	writeFeedPage(w, r, h.likes, h.avatars, h.logger, params.Limit,
 		func(ctx context.Context, limit int) ([]domain.Post, string, error) {
 			posts, next, err := h.posts.ListUserTravels(ctx, user.ID, cursor, limit, h.storage, displayURLTTL)
 			return posts, formatTravelCursor(next), err

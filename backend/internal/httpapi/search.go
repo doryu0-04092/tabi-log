@@ -28,6 +28,7 @@ type searchHandler struct {
 	likes   ReactionRepository
 	follows FollowRepository
 	storage ObjectStorage
+	avatars *avatarResolver
 	logger  *slog.Logger
 }
 
@@ -51,7 +52,7 @@ func (h *searchHandler) SearchPosts(w http.ResponseWriter, r *http.Request, para
 		return
 	}
 
-	writeFeedPage(w, r, h.likes, h.logger, params.Limit,
+	writeFeedPage(w, r, h.likes, h.avatars, h.logger, params.Limit,
 		func(ctx context.Context, limit int) ([]domain.Post, string, error) {
 			ids, next, err := h.repo.SearchPosts(ctx, filters, cursor, limit)
 			if err != nil {
@@ -207,16 +208,23 @@ func (h *searchHandler) SearchUsers(w http.ResponseWriter, r *http.Request, para
 		return
 	}
 
+	avatars := h.avatars.urls(r.Context(), ids)
+
 	items := make([]gen.UserSummary, 0, len(users))
 	for _, u := range users {
-		items = append(items, gen.UserSummary{
+		item := gen.UserSummary{
 			Id:          int64(u.ID),
 			Handle:      u.Handle,
 			DisplayName: u.DisplayName,
 			Bio:         u.Bio,
 			IsFollowing: followed[u.ID],
 			IsMe:        u.ID == viewerID,
-		})
+		}
+		if url, ok := avatars[u.ID]; ok {
+			v := url
+			item.AvatarUrl = &v
+		}
+		items = append(items, item)
 	}
 
 	var body gen.UserListResponse

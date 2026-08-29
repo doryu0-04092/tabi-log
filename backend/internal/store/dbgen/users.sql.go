@@ -8,7 +8,18 @@ package dbgen
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
+
+const clearAvatar = `-- name: ClearAvatar :exec
+UPDATE users SET avatar_media_id = NULL WHERE id = ? AND deleted_at IS NULL
+`
+
+// アバターを外す。
+func (q *Queries) ClearAvatar(ctx context.Context, id uint64) error {
+	_, err := q.db.ExecContext(ctx, clearAvatar, id)
+	return err
+}
 
 const countPostsByUser = `-- name: CountPostsByUser :one
 SELECT COUNT(*) FROM posts WHERE user_id = ?
@@ -247,6 +258,54 @@ func (q *Queries) GetUserByID(ctx context.Context, id uint64) (GetUserByIDRow, e
 	return i, err
 }
 
+const listAvatarKeys = `-- name: ListAvatarKeys :many
+SELECT u.id AS user_id, v.s3_key
+FROM users u
+JOIN media m ON m.id = u.avatar_media_id
+JOIN media_variants v ON v.media_id = m.id AND v.kind = 'thumb'
+WHERE u.id IN (/*SLICE:user_ids*/?)
+`
+
+type ListAvatarKeysRow struct {
+	UserID uint64
+	S3Key  string
+}
+
+// アバターの表示に使う変換物の鍵。
+// 一覧で1件ずつ引かないよう、利用者IDをまとめて渡せる形にしてある。
+func (q *Queries) ListAvatarKeys(ctx context.Context, userIds []uint64) ([]ListAvatarKeysRow, error) {
+	query := listAvatarKeys
+	var queryParams []interface{}
+	if len(userIds) > 0 {
+		for _, v := range userIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:user_ids*/?", strings.Repeat(",?", len(userIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:user_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAvatarKeysRow{}
+	for rows.Next() {
+		var i ListAvatarKeysRow
+		if err := rows.Scan(&i.UserID, &i.S3Key); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listS3KeysByUser = `-- name: ListS3KeysByUser :many
 SELECT m.s3_key FROM media m WHERE m.user_id = ?
 UNION
@@ -283,6 +342,49 @@ func (q *Queries) ListS3KeysByUser(ctx context.Context, arg ListS3KeysByUserPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const setAvatar = `-- name: SetAvatar :execresult
+UPDATE users
+SET avatar_media_id = ?
+WHERE users.id = ?
+  AND users.deleted_at IS NULL
+  AND EXISTS (
+      SELECT 1 FROM media m
+      WHERE m.id = ?
+        AND m.user_id = ?
+        AND m.post_id IS NULL
+        AND m.status = 'processed'
+  )
+`
+
+type SetAvatarParams struct {
+	AvatarMediaID sql.NullInt64
+	ID            uint64
+	ID_2          uint64
+	UserID        uint64
+}
+
+// アバターを設定する。
+//
+// **条件が要点である。** 自分のもので、処理が完了しており、まだどの投稿にも
+// 属していない画像だけを設定する。SELECT で確かめてから UPDATE すると、
+// その間に別のリクエストが同じ画像を使う余地が残る。
+// 更新件数が 0 なら条件に合わなかったということで、呼び出し側が検出する。
+//
+// 投稿画像と同じ media を使うのは、presign → Lambda（EXIF 除去・変換）の
+// 経路をそのまま通すためである。**アバターにも EXIF 除去が要る。**
+// **UPDATE ... JOIN では書けない。** sqlc が JOIN 側の条件の引数を
+// 認識せず、生成される関数から落ちる（実測）。EXISTS で書く。
+// 副問い合わせから users.id を参照するのも「曖昧」と判断されるため、
+// 利用者IDは2回渡す。
+func (q *Queries) SetAvatar(ctx context.Context, arg SetAvatarParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, setAvatar,
+		arg.AvatarMediaID,
+		arg.ID,
+		arg.ID_2,
+		arg.UserID,
+	)
 }
 
 const softDeleteUser = `-- name: SoftDeleteUser :exec

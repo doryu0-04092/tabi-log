@@ -596,6 +596,12 @@ type ReadyzResponseDataDatabase string
 // ReadyzResponseDataStatus defines model for ReadyzResponse.Data.Status.
 type ReadyzResponseDataStatus string
 
+// SetAvatarRequest defines model for SetAvatarRequest.
+type SetAvatarRequest struct {
+	// MediaId アップロードして処理が完了した画像のID
+	MediaId int64 `json:"mediaId"`
+}
+
 // SignupRequest defines model for SignupRequest.
 type SignupRequest struct {
 	// DisplayName Example: たびびと
@@ -645,7 +651,10 @@ type UpdateProfileRequest struct {
 
 // User 公開してよい利用者情報のみを含む。メールアドレスは含めない
 type User struct {
-	Bio *string `json:"bio,omitempty"`
+	// AvatarUrl アバターの表示用URL（署名付き、有効期間つき）。
+	// 設定していなければ null。**画面は必ず未設定の場合を描けること。**
+	AvatarUrl *string `json:"avatarUrl,omitempty"`
+	Bio       *string `json:"bio,omitempty"`
 
 	// DisplayName Example: たびびと
 	DisplayName string `json:"displayName"`
@@ -668,6 +677,8 @@ type UserListResponse struct {
 
 // UserProfile defines model for UserProfile.
 type UserProfile struct {
+	// AvatarUrl アバターの表示用URL。設定していなければ null
+	AvatarUrl      *string `json:"avatarUrl,omitempty"`
 	Bio            *string `json:"bio,omitempty"`
 	DisplayName    string  `json:"displayName"`
 	FollowerCount  int     `json:"followerCount"`
@@ -696,6 +707,8 @@ type UserResponse struct {
 
 // UserSummary 一覧に並べる利用者。フォローの導線を出すための状態を含む
 type UserSummary struct {
+	// AvatarUrl アバターの表示用URL。設定していなければ null
+	AvatarUrl   *string `json:"avatarUrl,omitempty"`
 	Bio         *string `json:"bio,omitempty"`
 	DisplayName string  `json:"displayName"`
 	Handle      string  `json:"handle"`
@@ -921,6 +934,9 @@ type DeleteAccountJSONRequestBody = DeleteAccountRequest
 // UpdateProfileJSONRequestBody defines body for UpdateProfile for application/json ContentType.
 type UpdateProfileJSONRequestBody = UpdateProfileRequest
 
+// SetAvatarJSONRequestBody defines body for SetAvatar for application/json ContentType.
+type SetAvatarJSONRequestBody = SetAvatarRequest
+
 // ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
 type ChangePasswordJSONRequestBody = ChangePasswordRequest
 
@@ -1013,6 +1029,12 @@ type ServerInterface interface {
 	// UpdateProfile プロフィールを編集する
 	// (PATCH /users/me)
 	UpdateProfile(w http.ResponseWriter, r *http.Request)
+	// ClearAvatar アバターを外す
+	// (DELETE /users/me/avatar)
+	ClearAvatar(w http.ResponseWriter, r *http.Request)
+	// SetAvatar アバターを設定する
+	// (PUT /users/me/avatar)
+	SetAvatar(w http.ResponseWriter, r *http.Request)
 	// ChangePassword パスワードを変更する
 	// (PUT /users/me/password)
 	ChangePassword(w http.ResponseWriter, r *http.Request, params ChangePasswordParams)
@@ -1989,6 +2011,34 @@ func (siw *ServerInterfaceWrapper) UpdateProfile(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ClearAvatar operation middleware
+func (siw *ServerInterfaceWrapper) ClearAvatar(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClearAvatar(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetAvatar operation middleware
+func (siw *ServerInterfaceWrapper) SetAvatar(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAvatar(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ChangePassword operation middleware
 func (siw *ServerInterfaceWrapper) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
@@ -2490,6 +2540,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/feed/following", wrapper.ListFollowingFeed)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/users/me", wrapper.DeleteAccount)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/users/me", wrapper.UpdateProfile)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/users/me/avatar", wrapper.ClearAvatar)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/users/me/avatar", wrapper.SetAvatar)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/users/me/password", wrapper.ChangePassword)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}/travels", wrapper.ListUserTravels)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}", wrapper.GetUserProfile)
