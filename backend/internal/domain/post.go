@@ -58,3 +58,20 @@ type Comment struct {
 	Body      string
 	CreatedAt time.Time
 }
+
+// Notification は利用者あての通知。
+//
+// 契機（いいね・コメント・フォロー）ごとに埋まる項目が違うため、
+// 使わない項目はポインタで「無い」を表せるようにしている。
+type Notification struct {
+	ID    uint64
+	Kind  string
+	Actor User
+	// PostID は like と comment に入る。画面はこれで投稿へ飛ぶ。
+	PostID *uint64
+	// CommentBody は comment に入る。**一覧に本文の頭を出すために持たせる。**
+	// 通知を開くたびにコメントを取りに行くと、20件で20往復になる。
+	CommentBody *string
+	IsRead      bool
+	CreatedAt   time.Time
+}

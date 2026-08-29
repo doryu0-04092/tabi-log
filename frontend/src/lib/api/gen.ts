@@ -598,6 +598,100 @@ export interface paths {
         patch: operations["updatePost"];
         trace?: never;
     };
+    "/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 通知の一覧
+         * @description 自分あての通知を新しい順に返す。
+         *
+         *     **通知は契機となる操作と同一トランザクションで作られる。**
+         *     キューや Outbox は使わない（「いいねは記録されたが通知が消えた」
+         *     状態を作らないための最も単純な方法である）。
+         *
+         *     契機が取り消されると通知も消える。いいねの解除・フォローの解除は
+         *     その場で削除し、投稿やコメントの削除は外部キーの連鎖で消える。
+         */
+        get: operations["listNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 未読の件数
+         * @description 画面の見出しに出す数のためだけの軽い問い合わせ。
+         *
+         *     **一覧を取らずに数だけ分かる必要がある。** 数を出すために
+         *     毎回20件ぶんの本体を取ってくるのは無駄が大きい。
+         */
+        get: operations["getUnreadNotificationCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * すべて既読にする
+         * @description **冪等である。** 未読が無くても 204 を返す。
+         */
+        put: operations["markAllNotificationsRead"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/{notificationId}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 1件を既読にする
+         * @description **冪等である。** 既に既読でも 204 を返す。
+         *
+         *     **他人あての通知は既読にできない**（404）。存在しない場合と
+         *     区別しないのは、id を総当たりして他人の通知の有無を
+         *     調べられないようにするためである。
+         */
+        put: operations["markNotificationRead"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/prefectures": {
         parameters: {
             query?: never;
@@ -789,6 +883,38 @@ export interface components {
                 users: components["schemas"]["UserSummary"][];
                 /** @description 続きがある場合のみ入る */
                 nextCursor?: string | null;
+            };
+        };
+        Notification: {
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            type: "like" | "comment" | "follow";
+            /** @description 通知の契機を作った利用者 */
+            actor: components["schemas"]["User"];
+            /**
+             * Format: int64
+             * @description like と comment に入る。画面はこれで投稿へ飛ぶ
+             */
+            postId?: number | null;
+            /**
+             * @description comment に入る。**一覧に本文の頭を出すために持たせる。**
+             *     通知を開くたびにコメントを取りに行くと、20件で20往復になる
+             */
+            commentBody?: string | null;
+            isRead: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        NotificationListResponse: {
+            data: {
+                notifications: components["schemas"]["Notification"][];
+                nextCursor?: string | null;
+            };
+        };
+        UnreadCountResponse: {
+            data: {
+                unreadCount: number;
             };
         };
         PresignRequest: {
@@ -1817,6 +1943,94 @@ export interface operations {
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listNotifications: {
+        parameters: {
+            query?: {
+                /** @description 前回の応答の `nextCursor` */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 通知の一覧 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationListResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    getUnreadNotificationCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 未読の件数 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadCountResponse"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    markAllNotificationsRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 既読にした（未読が無かった場合も含む） */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    markNotificationRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notificationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 既読にした（既に既読だった場合も含む） */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
         };
     };

@@ -38,6 +38,8 @@ tags:
     description: プロフィールとフォロー
   - name: search
     description: 発見（絞り込み・検索・人気順）
+  - name: notifications
+    description: 通知
 
 # 既定ですべてのエンドポイントが認証を要する。
 # 認証不要のものは各操作で security: [] を明示して打ち消す。
@@ -925,6 +927,107 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      summary: 通知の一覧
+      description: |
+        自分あての通知を新しい順に返す。
+
+        **通知は契機となる操作と同一トランザクションで作られる。**
+        キューや Outbox は使わない（「いいねは記録されたが通知が消えた」
+        状態を作らないための最も単純な方法である）。
+
+        契機が取り消されると通知も消える。いいねの解除・フォローの解除は
+        その場で削除し、投稿やコメントの削除は外部キーの連鎖で消える。
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: 前回の応答の `nextCursor`
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: 通知の一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationListResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /notifications/unread-count:
+    get:
+      tags: [notifications]
+      operationId: getUnreadNotificationCount
+      summary: 未読の件数
+      description: |
+        画面の見出しに出す数のためだけの軽い問い合わせ。
+
+        **一覧を取らずに数だけ分かる必要がある。** 数を出すために
+        毎回20件ぶんの本体を取ってくるのは無駄が大きい。
+      responses:
+        '200':
+          description: 未読の件数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadCountResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /notifications/read:
+    put:
+      tags: [notifications]
+      operationId: markAllNotificationsRead
+      summary: すべて既読にする
+      description: |
+        **冪等である。** 未読が無くても 204 を返す。
+      responses:
+        '204':
+          description: 既読にした（未読が無かった場合も含む）
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /notifications/{notificationId}/read:
+    put:
+      tags: [notifications]
+      operationId: markNotificationRead
+      summary: 1件を既読にする
+      description: |
+        **冪等である。** 既に既読でも 204 を返す。
+
+        **他人あての通知は既読にできない**（404）。存在しない場合と
+        区別しないのは、id を総当たりして他人の通知の有無を
+        調べられないようにするためである。
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '204':
+          description: 既読にした（既に既読だった場合も含む）
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /prefectures:
     get:
       tags: [master]
@@ -1343,6 +1446,69 @@ components:
               type: string
               nullable: true
               description: 続きがある場合のみ入る
+
+    # -----------------------------------------------------------------------
+    # 通知
+    # -----------------------------------------------------------------------
+    Notification:
+      type: object
+      required: [id, type, actor, isRead, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        type:
+          type: string
+          enum: [like, comment, follow]
+          x-enum-varnames: [NotificationLike, NotificationComment, NotificationFollow]
+        actor:
+          $ref: '#/components/schemas/User'
+          description: 通知の契機を作った利用者
+        postId:
+          type: integer
+          format: int64
+          nullable: true
+          description: like と comment に入る。画面はこれで投稿へ飛ぶ
+        commentBody:
+          type: string
+          nullable: true
+          description: |
+            comment に入る。**一覧に本文の頭を出すために持たせる。**
+            通知を開くたびにコメントを取りに行くと、20件で20往復になる
+        isRead:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    NotificationListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [notifications]
+          properties:
+            notifications:
+              type: array
+              items:
+                $ref: '#/components/schemas/Notification'
+            nextCursor:
+              type: string
+              nullable: true
+
+    UnreadCountResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [unreadCount]
+          properties:
+            unreadCount:
+              type: integer
+              minimum: 0
 
     # -----------------------------------------------------------------------
     # 投稿と画像

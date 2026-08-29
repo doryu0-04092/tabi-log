@@ -54,6 +54,27 @@ func (e MediaStatusResponseDataStatus) Valid() bool {
 	}
 }
 
+// Defines values for NotificationType.
+const (
+	NotificationComment NotificationType = "comment"
+	NotificationFollow  NotificationType = "follow"
+	NotificationLike    NotificationType = "like"
+)
+
+// Valid indicates whether the value is a known member of the NotificationType enum.
+func (e NotificationType) Valid() bool {
+	switch e {
+	case NotificationComment:
+		return true
+	case NotificationFollow:
+		return true
+	case NotificationLike:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PrefectureRegion.
 const (
 	Chubu         PrefectureRegion = "中部"
@@ -355,6 +376,34 @@ type MediaStatusResponse struct {
 // `failed`    … 画像として扱えなかった。投稿には使えない
 type MediaStatusResponseDataStatus string
 
+// Notification defines model for Notification.
+type Notification struct {
+	// Actor 公開してよい利用者情報のみを含む。メールアドレスは含めない
+	Actor User `json:"actor"`
+
+	// CommentBody comment に入る。**一覧に本文の頭を出すために持たせる。**
+	// 通知を開くたびにコメントを取りに行くと、20件で20往復になる
+	CommentBody *string   `json:"commentBody,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Id          int64     `json:"id"`
+	IsRead      bool      `json:"isRead"`
+
+	// PostId like と comment に入る。画面はこれで投稿へ飛ぶ
+	PostId *int64           `json:"postId,omitempty"`
+	Type   NotificationType `json:"type"`
+}
+
+// NotificationType defines model for Notification.Type.
+type NotificationType string
+
+// NotificationListResponse defines model for NotificationListResponse.
+type NotificationListResponse struct {
+	Data struct {
+		NextCursor    *string        `json:"nextCursor,omitempty"`
+		Notifications []Notification `json:"notifications"`
+	} `json:"data"`
+}
+
 // Post defines model for Post.
 type Post struct {
 	// Author 公開してよい利用者情報のみを含む。メールアドレスは含めない
@@ -510,6 +559,13 @@ type SignupRequest struct {
 	Password string `json:"password"`
 }
 
+// UnreadCountResponse defines model for UnreadCountResponse.
+type UnreadCountResponse struct {
+	Data struct {
+		UnreadCount int `json:"unreadCount"`
+	} `json:"data"`
+}
+
 // UpdatePostRequest 画像の差し替えはできない。代替テキストのみ変更できる
 type UpdatePostRequest struct {
 	Body string `json:"body"`
@@ -649,6 +705,13 @@ type ListFollowingFeedParams struct {
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListNotificationsParams defines parameters for ListNotifications.
+type ListNotificationsParams struct {
+	// Cursor 前回の応答の `nextCursor`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListPostsParams defines parameters for ListPosts.
 type ListPostsParams struct {
 	// Cursor 前回の応答の `nextCursor`。省略すると先頭から返す
@@ -778,6 +841,18 @@ type ServerInterface interface {
 	// GetMediaStatus 画像の処理状況
 	// (GET /media/{mediaId})
 	GetMediaStatus(w http.ResponseWriter, r *http.Request, mediaId int64)
+	// ListNotifications 通知の一覧
+	// (GET /notifications)
+	ListNotifications(w http.ResponseWriter, r *http.Request, params ListNotificationsParams)
+	// MarkAllNotificationsRead すべて既読にする
+	// (PUT /notifications/read)
+	MarkAllNotificationsRead(w http.ResponseWriter, r *http.Request)
+	// GetUnreadNotificationCount 未読の件数
+	// (GET /notifications/unread-count)
+	GetUnreadNotificationCount(w http.ResponseWriter, r *http.Request)
+	// MarkNotificationRead 1件を既読にする
+	// (PUT /notifications/{notificationId}/read)
+	MarkNotificationRead(w http.ResponseWriter, r *http.Request, notificationId int64)
 	// ListPosts 新着フィード
 	// (GET /posts)
 	ListPosts(w http.ResponseWriter, r *http.Request, params ListPostsParams)
@@ -1095,6 +1170,106 @@ func (siw *ServerInterfaceWrapper) GetMediaStatus(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMediaStatus(w, r, mediaId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListNotifications operation middleware
+func (siw *ServerInterfaceWrapper) ListNotifications(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListNotificationsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListNotifications(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MarkAllNotificationsRead operation middleware
+func (siw *ServerInterfaceWrapper) MarkAllNotificationsRead(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MarkAllNotificationsRead(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUnreadNotificationCount operation middleware
+func (siw *ServerInterfaceWrapper) GetUnreadNotificationCount(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUnreadNotificationCount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MarkNotificationRead operation middleware
+func (siw *ServerInterfaceWrapper) MarkNotificationRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "notificationId" -------------
+	var notificationId int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "notificationId", r.PathValue("notificationId"), &notificationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "notificationId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MarkNotificationRead(w, r, notificationId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2014,6 +2189,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/posts/{postId}", wrapper.DeletePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/posts/{postId}", wrapper.GetPost)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/posts/{postId}", wrapper.UpdatePost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/notifications", wrapper.ListNotifications)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/notifications/unread-count", wrapper.GetUnreadNotificationCount)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/notifications/read", wrapper.MarkAllNotificationsRead)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/notifications/{notificationId}/read", wrapper.MarkNotificationRead)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/prefectures", wrapper.ListPrefectures)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/livez", wrapper.GetLivez)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/readyz", wrapper.GetReadyz)

@@ -8,7 +8,21 @@ package dbgen
 import (
 	"context"
 	"database/sql"
+	"time"
 )
+
+const countUnreadNotifications = `-- name: CountUnreadNotifications :one
+SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read_at IS NULL
+`
+
+// 未読の件数。見出しの数のためだけに引く軽い問い合わせ。
+// 索引 ix_notifications_user_read (user_id, read_at) が効く。
+func (q *Queries) CountUnreadNotifications(ctx context.Context, userID uint64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUnreadNotifications, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const createNotification = `-- name: CreateNotification :exec
 
@@ -71,4 +85,121 @@ type DeleteLikeNotificationParams struct {
 func (q *Queries) DeleteLikeNotification(ctx context.Context, arg DeleteLikeNotificationParams) error {
 	_, err := q.db.ExecContext(ctx, deleteLikeNotification, arg.UserID, arg.ActorID, arg.PostID)
 	return err
+}
+
+const listNotificationsBefore = `-- name: ListNotificationsBefore :many
+SELECT
+    n.id, n.type, n.post_id, n.comment_id, n.read_at, n.created_at,
+    u.id AS actor_id, u.handle, u.display_name, u.bio,
+    c.body AS comment_body
+FROM notifications n
+JOIN users u ON u.id = n.actor_id
+LEFT JOIN comments c ON c.id = n.comment_id
+WHERE n.user_id = ? AND n.id < ?
+ORDER BY n.id DESC
+LIMIT ?
+`
+
+type ListNotificationsBeforeParams struct {
+	UserID uint64
+	ID     uint64
+	Limit  int32
+}
+
+type ListNotificationsBeforeRow struct {
+	ID          uint64
+	Type        NotificationsType
+	PostID      sql.NullInt64
+	CommentID   sql.NullInt64
+	ReadAt      sql.NullTime
+	CreatedAt   time.Time
+	ActorID     uint64
+	Handle      string
+	DisplayName string
+	Bio         sql.NullString
+	CommentBody sql.NullString
+}
+
+// 通知の一覧。新しい順。カーソルは id のみ（フィードと同じ考え方）。
+func (q *Queries) ListNotificationsBefore(ctx context.Context, arg ListNotificationsBeforeParams) ([]ListNotificationsBeforeRow, error) {
+	rows, err := q.db.QueryContext(ctx, listNotificationsBefore, arg.UserID, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListNotificationsBeforeRow{}
+	for rows.Next() {
+		var i ListNotificationsBeforeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.PostID,
+			&i.CommentID,
+			&i.ReadAt,
+			&i.CreatedAt,
+			&i.ActorID,
+			&i.Handle,
+			&i.DisplayName,
+			&i.Bio,
+			&i.CommentBody,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markAllNotificationsRead = `-- name: MarkAllNotificationsRead :exec
+UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL
+`
+
+type MarkAllNotificationsReadParams struct {
+	ReadAt sql.NullTime
+	UserID uint64
+}
+
+// 既読のものは触らない。既読の時刻を上書きしないためである。
+func (q *Queries) MarkAllNotificationsRead(ctx context.Context, arg MarkAllNotificationsReadParams) error {
+	_, err := q.db.ExecContext(ctx, markAllNotificationsRead, arg.ReadAt, arg.UserID)
+	return err
+}
+
+const markNotificationRead = `-- name: MarkNotificationRead :execresult
+UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL
+`
+
+type MarkNotificationReadParams struct {
+	ReadAt sql.NullTime
+	ID     uint64
+	UserID uint64
+}
+
+// **user_id を条件に入れているのは権限の担保である。**
+// 他人あての通知を id だけで既読にできてはいけない。
+func (q *Queries) MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, markNotificationRead, arg.ReadAt, arg.ID, arg.UserID)
+}
+
+const notificationExists = `-- name: NotificationExists :one
+SELECT EXISTS(SELECT 1 FROM notifications WHERE id = ? AND user_id = ?)
+`
+
+type NotificationExistsParams struct {
+	ID     uint64
+	UserID uint64
+}
+
+// 既読にできるかの確認に使う。存在しない場合と他人あての場合を区別しない。
+func (q *Queries) NotificationExists(ctx context.Context, arg NotificationExistsParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, notificationExists, arg.ID, arg.UserID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }

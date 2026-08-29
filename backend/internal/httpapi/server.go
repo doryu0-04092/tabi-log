@@ -41,19 +41,21 @@ type server struct {
 	*reactionHandler
 	*userHandler
 	*searchHandler
+	*notificationHandler
 }
 
 // Deps はルーターの構築に必要な依存をまとめる。
 type Deps struct {
 	// DB は疎通確認にのみ使う。データの読み書きは各 store が担う。
-	DB          Pinger
-	Prefectures PrefectureLister
-	Auth        AuthRepository
-	Posts       PostRepository
-	Reactions   ReactionRepository
-	Follows     FollowRepository
-	Search      SearchRepository
-	Storage     ObjectStorage
+	DB            Pinger
+	Prefectures   PrefectureLister
+	Auth          AuthRepository
+	Posts         PostRepository
+	Reactions     ReactionRepository
+	Follows       FollowRepository
+	Search        SearchRepository
+	Notifications NotificationRepository
+	Storage       ObjectStorage
 
 	TokenIssuer   auth.TokenIssuer
 	TokenVerifier auth.TokenVerifier
@@ -116,6 +118,11 @@ func NewRouter(deps Deps) http.Handler {
 			likes:   deps.Reactions,
 			storage: deps.Storage,
 			logger:  deps.Logger,
+		},
+		notificationHandler: &notificationHandler{
+			repo:   deps.Notifications,
+			logger: deps.Logger,
+			now:    time.Now,
 		},
 		searchHandler: &searchHandler{
 			repo:    deps.Search,

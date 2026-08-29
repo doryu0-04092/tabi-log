@@ -358,7 +358,14 @@ S3 のライフサイクルルールで期限削除できる。これを行わ�
 | `delivered_at` | DATETIME(6) | NULL | **現時点では未使用**（後述） |
 | `created_at` | DATETIME(6) | NOT NULL | |
 
-**索引**: `INDEX(user_id, created_at DESC, id DESC)` / `INDEX(user_id, read_at)`
+**索引**: `INDEX(user_id, id DESC)` / `INDEX(user_id, read_at)`
+
+> **一覧の索引は 000004 で `(user_id, created_at DESC, id DESC)` から置き換えた。**
+> 一覧は `WHERE user_id = ? AND id < ? ORDER BY id DESC` で引くため、
+> `created_at` を含む索引では並びを解決できず `Using filesort` が出る
+> （2026-08-29 に実測）。`posts` の 000003 と同じ形の修正である。
+> **足すのではなく置き換えたのは、`created_at` 順で引く経路が他に無いためである。**
+> 先頭の列が同じ索引を2本持つと、書き込みのたびに両方を更新することになる。
 
 **通知は本体の変更と同一トランザクションで INSERT する。** キューや Outbox パターンは使わない。
 「いいねは記録されたが通知が消えた」という状態を作らないための最も単純な方法であり、

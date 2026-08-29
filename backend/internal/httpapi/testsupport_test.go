@@ -52,14 +52,15 @@ func (s stubPrefectureLister) List(context.Context) ([]domain.Prefecture, error)
 
 // testDeps はテスト用の依存一式を組み立てる。
 type testDeps struct {
-	pingErr     error
-	prefectures PrefectureLister
-	auth        AuthRepository
-	posts       PostRepository
-	reactions   ReactionRepository
-	follows     FollowRepository
-	search      SearchRepository
-	tokens      *auth.JWTService
+	pingErr       error
+	prefectures   PrefectureLister
+	auth          AuthRepository
+	posts         PostRepository
+	reactions     ReactionRepository
+	follows       FollowRepository
+	search        SearchRepository
+	notifications NotificationRepository
+	tokens        *auth.JWTService
 }
 
 func newRouter(t *testing.T, d testDeps) http.Handler {
@@ -86,6 +87,9 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 	if d.search == nil {
 		d.search = &stubSearchRepo{}
 	}
+	if d.notifications == nil {
+		d.notifications = &stubNotificationRepo{}
+	}
 
 	deps := Deps{
 		DB:            stubPinger{err: d.pingErr},
@@ -95,6 +99,7 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 		Reactions:     d.reactions,
 		Follows:       d.follows,
 		Search:        d.search,
+		Notifications: d.notifications,
 		TokenIssuer:   d.tokens,
 		TokenVerifier: d.tokens,
 		AuthOptions: AuthOptions{
@@ -443,4 +448,49 @@ func (s *stubSearchRepo) SearchUsers(_ context.Context, keyword string, cursorID
 	s.lastLimit = limit
 	_ = cursorID
 	return s.users, s.usersCursor, s.usersErr
+}
+
+// stubNotificationRepo は呼び出しを記録し、返す値を差し替えられる。
+type stubNotificationRepo struct {
+	items      []domain.Notification
+	nextCursor uint64
+	listErr    error
+
+	unread    int
+	unreadErr error
+
+	markErr      error
+	markedIDs    []uint64
+	markedAllFor []uint64
+
+	lastCursor uint64
+	lastLimit  int
+	lastUserID uint64
+}
+
+func (s *stubNotificationRepo) List(_ context.Context, userID, cursorID uint64, limit int) ([]domain.Notification, uint64, error) {
+	s.lastUserID, s.lastCursor, s.lastLimit = userID, cursorID, limit
+	return s.items, s.nextCursor, s.listErr
+}
+
+func (s *stubNotificationRepo) UnreadCount(_ context.Context, userID uint64) (int, error) {
+	s.lastUserID = userID
+	return s.unread, s.unreadErr
+}
+
+func (s *stubNotificationRepo) MarkRead(_ context.Context, notificationID, userID uint64, _ time.Time) error {
+	s.lastUserID = userID
+	if s.markErr != nil {
+		return s.markErr
+	}
+	s.markedIDs = append(s.markedIDs, notificationID)
+	return nil
+}
+
+func (s *stubNotificationRepo) MarkAllRead(_ context.Context, userID uint64, _ time.Time) error {
+	if s.markErr != nil {
+		return s.markErr
+	}
+	s.markedAllFor = append(s.markedAllFor, userID)
+	return nil
 }
