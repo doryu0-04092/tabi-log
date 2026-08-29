@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import type { components } from '$lib/api/gen';
 	import Avatar from '$lib/components/Avatar.svelte';
+	import FollowButton from '$lib/components/FollowButton.svelte';
 	import LikeButton from '$lib/components/LikeButton.svelte';
 
 	type Post = components['schemas']['Post'];
@@ -15,8 +16,15 @@
 		 * **今いる場所への「詳細を見る」を出さない**。
 		 * 行き先が現在地のリンクは、読み上げでも視覚でも混乱のもとになる。
 		 */
-		linkToDetail = true
-	}: { post: Post; linkToDetail?: boolean } = $props();
+		linkToDetail = true,
+		/**
+		 * フォローの導線を出すかどうか。
+		 *
+		 * **プロフィール画面では出さない。** 見出しに同じ相手のボタンが
+		 * 既にあり、投稿の数だけ同じボタンが並ぶことになる。
+		 */
+		showFollow = true
+	}: { post: Post; linkToDetail?: boolean; showFollow?: boolean } = $props();
 
 	/**
 	 * 訪問日を「2026年5月3日」の形にする。
@@ -38,6 +46,20 @@
 			<span class="name">{post.author.displayName}</span>
 			<span class="handle">@{post.author.handle}</span>
 		</a>
+
+		<!--
+			**カードからその場でフォローできるようにする。**
+			プロフィールまで開かないとフォローできないと、
+			フィードを見ている流れが途切れる。
+			自分の投稿には出さない（押せない導線は迷いのもとになる）。
+		-->
+		{#if showFollow && post.author.isMe === false}
+			<FollowButton
+				handle={post.author.handle}
+				displayName={post.author.displayName}
+				following={post.author.isFollowing ?? false}
+			/>
+		{/if}
 	</header>
 
 	<!--
@@ -49,15 +71,20 @@
 			{#each post.media as m (m.id)}
 				<li>
 					<!--
-						alt は投稿時に必須として入力させたものをそのまま使う。
-						空にすると画像が見えない利用者に何も伝わらない。
+						**alt は空にする。** 画像ごとの説明は入力させない方針にしたため、
+						説明として出せる内容が無い（2026-08-29 の判断）。
+
+						属性ごと消さないのは、alt の無い img は HTML として不正であり、
+						読み上げがファイル名を読み上げてしまうためである。
+						alt="" は「読み上げる内容が無い」を表す正しい書き方である。
+
 						srcset で一覧と拡大の画質を出し分ける。
 					-->
 					<img
 						src={m.thumbUrl}
 						srcset="{m.thumbUrl} 320w, {m.mediumUrl} 1080w"
 						sizes="(max-width: 40rem) 100vw, 40rem"
-						alt={m.altText}
+						alt=""
 						width={m.width}
 						height={m.height}
 						loading="lazy"
@@ -69,9 +96,18 @@
 
 	{#if post.media.length > 0}
 		{#if linkToDetail}
-			<a class="photos" href={resolve('/posts/[postId]', { postId: String(post.id) })}
-				>{@render photos()}</a
+			<!--
+				**写真そのものを押せるようにする。** ただし alt が空なので、
+				このリンクには読み上げられる文字が無い。行き先が分かるよう
+				aria-label を付ける（付けないと「リンク」としか読まれない）。
+			-->
+			<a
+				class="photos"
+				href={resolve('/posts/[postId]', { postId: String(post.id) })}
+				aria-label="{post.prefecture.name}の投稿の詳細を見る"
 			>
+				{@render photos()}
+			</a>
 		{:else}
 			<div class="photos">{@render photos()}</div>
 		{/if}
@@ -85,10 +121,15 @@
 		{#if post.spotName}
 			<span class="spot">{post.spotName}</span>
 		{/if}
-		<!-- 訪問日は投稿日と別の軸。「いつ行ったか」を明示する。 -->
-		<time class="visited" datetime={post.visitedOn}>
-			訪問 {formatVisitedOn(post.visitedOn)}
-		</time>
+		<!--
+			訪問日は投稿日と別の軸。「いつ行ったか」を明示する。
+			**任意なので、無い投稿では出さない。**
+		-->
+		{#if post.visitedOn}
+			<time class="visited" datetime={post.visitedOn}>
+				訪問 {formatVisitedOn(post.visitedOn)}
+			</time>
+		{/if}
 	</div>
 
 	<p class="body">{post.body}</p>
@@ -115,14 +156,22 @@
 </article>
 
 <style>
+	/* **ぼかした影を使わない。** 濃い輪郭とずらしたベタで立体を出す。
+	   これがレトロポスターの質感の要である。 */
 	.card {
-		border: 1px solid var(--color-border);
+		border: var(--line-strong);
 		border-radius: var(--radius);
 		overflow: hidden;
 		background: var(--color-bg);
+		box-shadow: var(--shadow-hard);
 	}
 
 	header {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
 		padding: var(--space-3) var(--space-4);
 	}
 
@@ -147,9 +196,16 @@
 		display: block;
 	}
 
+	/* **画像の枠は枚数によらず同じ高さにする。**
+	   1枚のときだけ大きくなると、フィードを流し読みするときに
+	   カードごとに高さが跳ねて読みづらい。
+	   枠の中を枚数で割る形にしてある。 */
 	.photo-list {
 		display: grid;
+		grid-auto-rows: 1fr;
 		gap: 2px;
+		height: 18rem;
+		background: var(--color-border);
 		list-style: none;
 		margin: 0;
 		padding: 0;
@@ -171,17 +227,17 @@
 		grid-row: span 2;
 	}
 
+	/* 枠を埋める。大きな写真でも枠より大きくならない。 */
 	.photo-list img {
 		display: block;
 		width: 100%;
-		/* 縦横比を固定して、読み込み中に文字が飛び跳ねるのを防ぐ。 */
-		aspect-ratio: 4 / 3;
+		height: 100%;
 		object-fit: cover;
 		background: var(--color-surface);
 	}
 
-	.photo-list[data-count='1'] img {
-		aspect-ratio: 3 / 2;
+	.photo-list li {
+		min-height: 0;
 	}
 
 	.meta {
@@ -237,7 +293,7 @@
 		align-items: center;
 		margin-top: var(--space-3);
 		padding: var(--space-3) var(--space-4);
-		border-top: 1px solid var(--color-border);
+		border-top: var(--line);
 		color: var(--color-text-muted);
 		font-size: 0.875rem;
 	}

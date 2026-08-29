@@ -13,6 +13,7 @@
 		type UserProfile
 	} from '$lib/api/users';
 	import { session } from '$lib/auth/session.svelte';
+	import BackLink from '$lib/components/BackLink.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import ConquestMap from '$lib/components/ConquestMap.svelte';
 	import FollowButton from '$lib/components/FollowButton.svelte';
@@ -238,7 +239,7 @@
 	{:else}
 		<ul class="feed">
 			{#each posts as post (post.id)}
-				<li><PostCard {post} /></li>
+				<li><PostCard {post} showFollow={false} /></li>
 			{/each}
 		</ul>
 
@@ -248,6 +249,8 @@
 			</button>
 		{/if}
 	{/if}
+
+	<BackLink label="ホーム" href={resolve('/')} />
 {/if}
 
 <style>
@@ -286,8 +289,8 @@
 		gap: var(--space-4) var(--space-6);
 		margin: var(--space-4) 0 0;
 		padding: var(--space-4) 0;
-		border-top: 1px solid var(--color-border);
-		border-bottom: 1px solid var(--color-border);
+		border-top: var(--line);
+		border-bottom: var(--line);
 	}
 
 	.counts dt {
@@ -313,7 +316,7 @@
 		font-weight: 600;
 		color: var(--color-text);
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		text-decoration: none;
 	}
@@ -322,7 +325,7 @@
 		display: flex;
 		gap: var(--space-2);
 		margin-bottom: var(--space-4);
-		border-bottom: 1px solid var(--color-border);
+		border-bottom: var(--line);
 	}
 
 	.tabs a {
@@ -364,7 +367,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		cursor: pointer;
 	}

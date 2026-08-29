@@ -7,12 +7,12 @@ INSERT INTO media (user_id, s3_key, status)
 VALUES (?, ?, 'pending');
 
 -- name: GetMediaByID :one
-SELECT id, user_id, post_id, s3_key, mime, width, height, bytes, alt_text, sort_order, status
+SELECT id, user_id, post_id, s3_key, mime, width, height, bytes, sort_order, status
 FROM media
 WHERE id = ?;
 
 -- name: GetMediaByS3Key :one
-SELECT id, user_id, post_id, s3_key, mime, width, height, bytes, alt_text, sort_order, status
+SELECT id, user_id, post_id, s3_key, mime, width, height, bytes, sort_order, status
 FROM media
 WHERE s3_key = ?;
 
@@ -24,23 +24,17 @@ WHERE s3_key = ?;
 -- その間に別のリクエストが同じ画像を使う余地が残る。
 -- name: AttachMediaToPost :execresult
 UPDATE media
-SET post_id = ?, alt_text = ?, sort_order = ?
+SET post_id = ?, sort_order = ?
 WHERE id = ?
   AND user_id = ?
   AND post_id IS NULL
   AND status = 'processed';
 
 -- name: ListMediaByPostID :many
-SELECT id, post_id, alt_text, width, height, s3_key
+SELECT id, post_id, width, height, s3_key
 FROM media
 WHERE post_id = ?
 ORDER BY sort_order, id;
-
--- 代替テキストの更新（投稿の編集）。
--- name: UpdateMediaAltText :exec
-UPDATE media
-SET alt_text = ?
-WHERE id = ? AND post_id = ?;
 
 -- 画像処理の完了。
 -- name: MarkMediaProcessed :exec
@@ -81,7 +75,7 @@ WHERE m.post_id = ?;
 -- **投稿ごとに問い合わせない（N+1 を作らない）。** フィードは1画面で
 -- 20件返すため、投稿ごとに画像を引くと 20 回の往復になる。
 -- name: ListMediaByPostIDs :many
-SELECT id, post_id, alt_text, width, height, s3_key
+SELECT id, post_id, width, height, s3_key
 FROM media
 WHERE post_id IN (sqlc.slice('post_ids'))
 ORDER BY post_id, sort_order, id;

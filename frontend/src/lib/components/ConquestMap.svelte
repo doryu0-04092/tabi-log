@@ -133,7 +133,7 @@
 		/* **狭い画面でも崩れない。** マスの大きさは列数から決まるため、
 		   横に溢れず、正方形の比率だけを保つ。 */
 		width: 100%;
-		max-width: 30rem;
+		max-width: 26rem;
 		aspect-ratio: var(--columns) / var(--rows);
 		margin: var(--space-4) 0 0;
 		padding: 0;
@@ -145,8 +145,11 @@
 		justify-content: center;
 		width: 100%;
 		height: 100%;
-		/* 未訪問は薄く、枠線だけで存在を示す。 */
-		background: hsl(var(--hue) 20% 92%);
+		/* **未訪問でも地方の色を薄く付ける。**
+		   塗られていない状態でも「どの地方の県か」が見え、
+		   まとまりとして地図が読める。訪問済みとの差は明度で付ける。 */
+		/* 未訪問。地方の色を薄く敷き、輪郭は墨で締める。 */
+		background: hsl(var(--hue) 38% 84%);
 		border: 1px solid var(--color-border);
 		border-radius: 2px;
 		font-size: 0.625rem;
@@ -158,8 +161,8 @@
 	/* **白文字とのコントラストを確保するため明度を下げている。**
 	   色相によっては 55% だと 4.5:1 を下回る。 */
 	.tile.visited {
-		background: hsl(var(--hue) 60% 34%);
-		border-color: hsl(var(--hue) 60% 26%);
+		background: hsl(var(--hue) 52% 34%);
+		border-color: var(--color-border);
 		color: #fff;
 	}
 
@@ -174,7 +177,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		cursor: pointer;
 	}
@@ -196,7 +199,7 @@
 	td {
 		padding: var(--space-2);
 		text-align: left;
-		border-bottom: 1px solid var(--color-border);
+		border-bottom: var(--line);
 	}
 
 	thead th {

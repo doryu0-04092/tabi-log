@@ -131,6 +131,8 @@ FROM posts p
 JOIN users u ON u.id = p.user_id
 JOIN prefectures pref ON pref.code = p.prefecture_code
 WHERE p.user_id = sqlc.arg('user_id')
+  -- **訪問日の無い投稿は出さない。** 並べる軸そのものが無い。
+  AND p.visited_on IS NOT NULL
   AND (p.visited_on < sqlc.arg('visited_on')
        OR (p.visited_on = sqlc.arg('visited_on') AND p.id < sqlc.arg('id')))
 ORDER BY p.visited_on DESC, p.id DESC

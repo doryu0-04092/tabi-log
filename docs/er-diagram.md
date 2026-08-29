@@ -194,7 +194,7 @@ ngram パーサは既定でトークン長2で全文を機械的に刻む。
 | `mime` | VARCHAR(50) | NULL | **サーバー側の検証後に確定する**。申告値は保存しない |
 | `width` / `height` | INT UNSIGNED | NULL | 処理後に確定 |
 | `bytes` | INT UNSIGNED | NULL | 処理後に確定 |
-| `alt_text` | VARCHAR(200) | NULL | 代替テキスト |
+| `alt_text` | VARCHAR(200) | NULL | **未使用**。代替テキストの入力を廃止したため（2026-08-29）。列は残してある |
 | `sort_order` | TINYINT UNSIGNED | NOT NULL, DEFAULT 0 | 投稿内での表示順（0〜3） |
 | `status` | ENUM | NOT NULL, DEFAULT `'pending'` | `pending` / `uploaded` / `processed` / `failed` |
 | `created_at` / `updated_at` | DATETIME(6) | NOT NULL | |
@@ -210,6 +210,10 @@ ngram パーサは既定でトークン長2で全文を機械的に刻む。
 **投稿に紐づく（`post_id IS NOT NULL`）メディアについては、
 アプリケーション層で入力を必須として検証する**。アクセシビリティ要件のため、
 写真が主役のサービスで代替テキストを任意にすると実質的に入力されないためである。
+
+> **この方針は 2026-08-29 に撤回した。** 入力欄そのものを廃止し、`alt_text` は
+> 書き込まれなくなった。**列は残している。** 消すには破壊的なマイグレーションが要り、
+> 得るものが無いためである。理由と代償は requirements.md に記した。
 
 **`status` の遷移と、それが担っている役割**
 

@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { listPrefectures, searchPosts, type Post, type Prefecture } from '$lib/api/posts';
 	import { session } from '$lib/auth/session.svelte';
+	import BackLink from '$lib/components/BackLink.svelte';
 	import PostCard from '$lib/components/PostCard.svelte';
 
 	type State =
@@ -73,7 +74,7 @@
 	<p>この一覧を見るには <a href={resolve('/login')}>ログイン</a> が必要です。</p>
 {:else}
 	<nav aria-label="パンくず">
-		<a href={resolve('/')}>フィード</a> ／ {title}
+		<a href={resolve('/')}>ホーム</a> ／ {title}
 	</nav>
 
 	<h1>{title}の投稿</h1>
@@ -101,6 +102,8 @@
 			</button>
 		{/if}
 	{/if}
+
+	<BackLink href={resolve('/')} />
 {/if}
 
 <style>
@@ -139,7 +142,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		cursor: pointer;
 	}

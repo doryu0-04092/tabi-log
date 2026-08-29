@@ -53,7 +53,7 @@ export async function signup(
 /** 投稿を1件作る。作成後の投稿詳細ページに遷移した状態で返る。 */
 export async function createPost(
 	page: Page,
-	opts: { body: string; prefecture: string; alt: string }
+	opts: { body: string; prefecture: string }
 ): Promise<void> {
 	await page.goto('/posts/new');
 
@@ -69,9 +69,8 @@ export async function createPost(
 	// 完了して初めて「使えます」になる。
 	await expect(page.getByText('使えます')).toBeVisible({ timeout: 30_000 });
 
-	await page.getByLabel('画像1の説明（必須）').fill(opts.alt);
 	await page.getByLabel('都道府県（必須）').selectOption({ label: opts.prefecture });
-	await page.getByLabel('訪問日（必須）').fill('2026-05-03');
+	await page.getByLabel('訪問日').fill('2026-05-03');
 	await page.getByLabel('本文（必須）').fill(opts.body);
 	await page.getByRole('button', { name: '投稿する' }).click();
 

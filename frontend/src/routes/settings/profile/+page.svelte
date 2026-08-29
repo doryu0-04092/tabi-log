@@ -228,7 +228,7 @@
 	.avatar-section {
 		margin-bottom: var(--space-6);
 		padding-bottom: var(--space-4);
-		border-bottom: 1px solid var(--color-border);
+		border-bottom: var(--line);
 	}
 
 	h2 {
@@ -258,7 +258,7 @@
 		font-weight: 600;
 		color: var(--color-text);
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		cursor: pointer;
 	}
@@ -290,7 +290,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: transparent;
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		cursor: pointer;
 	}
@@ -317,7 +317,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: var(--color-bg);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 	}
 
@@ -366,6 +366,6 @@
 	.link {
 		margin-top: var(--space-6);
 		padding-top: var(--space-4);
-		border-top: 1px solid var(--color-border);
+		border-top: var(--line);
 	}
 </style>

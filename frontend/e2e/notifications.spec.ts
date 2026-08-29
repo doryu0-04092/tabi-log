@@ -29,7 +29,7 @@ test.describe('通知', () => {
 
 	test('いいねされると通知が届く', async ({ page, browser, baseURL }) => {
 		await signup(page, { displayName: '投稿した人' });
-		await createPost(page, { body: 'いいねされる投稿', prefecture: '北海道', alt: '北海道の写真' });
+		await createPost(page, { body: 'いいねされる投稿', prefecture: '北海道' });
 		const url = page.url();
 
 		const other = await otherUser(browser, baseURL, 'いいねした人');
@@ -50,7 +50,7 @@ test.describe('通知', () => {
 	// 分からないと、通知としての用をなさない。
 	test('コメントされると本文つきで通知が届く', async ({ page, browser, baseURL }) => {
 		await signup(page, { displayName: 'コメントされる人' });
-		await createPost(page, { body: 'コメントされる投稿', prefecture: '京都府', alt: '京都の写真' });
+		await createPost(page, { body: 'コメントされる投稿', prefecture: '京都府' });
 		const url = page.url();
 
 		const text = `通知に出るコメント ${Date.now()}`;
@@ -81,7 +81,7 @@ test.describe('通知', () => {
 	// **自分の行為で自分に通知は来ない。**
 	test('自分の投稿へのいいねでは通知が来ない', async ({ page }) => {
 		await signup(page);
-		await createPost(page, { body: '自分でいいねする', prefecture: '沖縄県', alt: '沖縄の写真' });
+		await createPost(page, { body: '自分でいいねする', prefecture: '沖縄県' });
 
 		await toggleLike(page, true);
 
@@ -92,7 +92,7 @@ test.describe('通知', () => {
 	// **契機が取り消されると通知も消える。** 残ると「いいねされた」通知だけが宙に浮く。
 	test('いいねが取り消されると通知も消える', async ({ page, browser, baseURL }) => {
 		await signup(page, { displayName: '取り消される人' });
-		await createPost(page, { body: '取り消しの検査', prefecture: '長野県', alt: '長野の写真' });
+		await createPost(page, { body: '取り消しの検査', prefecture: '長野県' });
 		const url = page.url();
 
 		const other = await otherUser(browser, baseURL, '取り消す人');
@@ -111,7 +111,7 @@ test.describe('通知', () => {
 
 	test('ヘッダーに未読の件数が出て、既読にすると消える', async ({ page, browser, baseURL }) => {
 		await signup(page, { displayName: '未読を見る人' });
-		await createPost(page, { body: '未読の検査', prefecture: '広島県', alt: '広島の写真' });
+		await createPost(page, { body: '未読の検査', prefecture: '広島県' });
 		const url = page.url();
 
 		const other = await otherUser(browser, baseURL, '未読を作る人');
@@ -127,18 +127,21 @@ test.describe('通知', () => {
 		await page.goto('/');
 		await expect(notificationLink(page)).toContainText('1件の未読');
 
+		// **一覧を開いた時点で既読になる。** 鈴の印は「見ていないものがある」印であり、
+		// 開いた以上は消えるのが自然である。
 		await page.goto('/notifications');
-		await expect(page.getByText('未読', { exact: true })).toBeVisible();
-		await page.getByRole('button', { name: /すべて既読にする/ }).click();
-		await expect(page.getByText('未読', { exact: true })).toBeHidden();
+		await expect(page.getByText('があなたの投稿にいいねしました')).toBeVisible();
 
 		await page.goto('/');
 		await expect(notificationLink(page)).not.toContainText('未読');
 	});
 
-	test('1件だけ既読にできる', async ({ page, browser, baseURL }) => {
+	// **開いた時点で全て既読になるため、個別の「既読にする」は画面に出ない。**
+	// API としては1件ずつの既読化を持っているが（他の入口から使う余地を残す）、
+	// この画面では使っていない。
+	test.skip('1件だけ既読にできる', async ({ page, browser, baseURL }) => {
 		await signup(page, { displayName: '1件既読の人' });
-		await createPost(page, { body: '1件既読の検査', prefecture: '愛知県', alt: '愛知の写真' });
+		await createPost(page, { body: '1件既読の検査', prefecture: '愛知県' });
 		const url = page.url();
 
 		const other = await otherUser(browser, baseURL, '押した人');
@@ -162,7 +165,7 @@ test.describe('通知', () => {
 
 	test('通知にアクセシビリティ違反が無い', async ({ page, browser, baseURL }) => {
 		await signup(page, { displayName: '検査される人' });
-		await createPost(page, { body: '検査用の投稿', prefecture: '石川県', alt: '石川の写真' });
+		await createPost(page, { body: '検査用の投稿', prefecture: '石川県' });
 		const url = page.url();
 
 		const other = await otherUser(browser, baseURL, '検査する人');

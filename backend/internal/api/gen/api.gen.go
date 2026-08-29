@@ -330,7 +330,11 @@ type CreatePostRequest struct {
 
 	// VisitedOn 訪問日。**投稿日とは別の軸である。** 旅行から帰ったあとに
 	// まとめて投稿するのが自然な使われ方のため。未来日は受け付けない。
-	VisitedOn openapi_types.Date `json:"visitedOn"`
+	//
+	// **任意である。** 覚えていない・特定の日に紐づかない投稿もあるため。
+	// **省略した投稿は旅行履歴（訪問日順）に出ない。**
+	// 並べる軸そのものが無いためである。
+	VisitedOn *openapi_types.Date `json:"visitedOn,omitempty"`
 }
 
 // DeleteAccountRequest defines model for DeleteAccountRequest.
@@ -381,9 +385,8 @@ type MeResponse struct {
 
 // Media defines model for Media.
 type Media struct {
-	AltText string `json:"altText"`
-	Height  int    `json:"height"`
-	Id      int64  `json:"id"`
+	Height int   `json:"height"`
+	Id     int64 `json:"id"`
 
 	// MediumUrl 長辺1080px。詳細で使う
 	MediumUrl string `json:"mediumUrl"`
@@ -391,12 +394,6 @@ type Media struct {
 	// ThumbUrl 長辺320px。一覧で使う
 	ThumbUrl string `json:"thumbUrl"`
 	Width    int    `json:"width"`
-}
-
-// MediaAltText defines model for MediaAltText.
-type MediaAltText struct {
-	AltText string `json:"altText"`
-	MediaId int64  `json:"mediaId"`
 }
 
 // MediaStatusResponse defines model for MediaStatusResponse.
@@ -465,14 +462,16 @@ type Post struct {
 	// 投稿ごとに問い合わせると N+1 になるため、
 	// `likes` の主キーを `(user_id, post_id)` の順にしてあり、
 	// `WHERE user_id = ? AND post_id IN (...)` の1クエリで解決する。
-	IsLiked    bool               `json:"isLiked"`
-	LikeCount  int                `json:"likeCount"`
-	Media      []Media            `json:"media"`
-	Prefecture Prefecture         `json:"prefecture"`
-	SpotName   *string            `json:"spotName,omitempty"`
-	Tags       []string           `json:"tags"`
-	UpdatedAt  *time.Time         `json:"updatedAt,omitempty"`
-	VisitedOn  openapi_types.Date `json:"visitedOn"`
+	IsLiked    bool       `json:"isLiked"`
+	LikeCount  int        `json:"likeCount"`
+	Media      []Media    `json:"media"`
+	Prefecture Prefecture `json:"prefecture"`
+	SpotName   *string    `json:"spotName,omitempty"`
+	Tags       []string   `json:"tags"`
+	UpdatedAt  *time.Time `json:"updatedAt,omitempty"`
+
+	// VisitedOn 訪問日。省略された投稿では null
+	VisitedOn *openapi_types.Date `json:"visitedOn,omitempty"`
 }
 
 // PostListResponse defines model for PostListResponse.
@@ -489,10 +488,7 @@ type PostListResponse struct {
 
 // PostMediaInput defines model for PostMediaInput.
 type PostMediaInput struct {
-	// AltText **必須。** 写真が主役のサービスで代替テキストを任意にすると
-	// 実質的に入力されず、画像が見えない利用者に何も伝わらなくなる。
-	AltText string `json:"altText"`
-	MediaId int64  `json:"mediaId"`
+	MediaId int64 `json:"mediaId"`
 }
 
 // PostResponse defines model for PostResponse.
@@ -630,16 +626,15 @@ type UnreadCountResponse struct {
 	} `json:"data"`
 }
 
-// UpdatePostRequest 画像の差し替えはできない。代替テキストのみ変更できる
+// UpdatePostRequest 画像の差し替えはできない。本文・都道府県・スポット名・訪問日・タグを変える。
 type UpdatePostRequest struct {
-	Body string `json:"body"`
+	Body           string    `json:"body"`
+	PrefectureCode string    `json:"prefectureCode"`
+	SpotName       *string   `json:"spotName,omitempty"`
+	Tags           *[]string `json:"tags,omitempty"`
 
-	// MediaAltTexts 既にこの投稿に紐づいている画像の代替テキスト
-	MediaAltTexts  []MediaAltText     `json:"mediaAltTexts"`
-	PrefectureCode string             `json:"prefectureCode"`
-	SpotName       *string            `json:"spotName,omitempty"`
-	Tags           *[]string          `json:"tags,omitempty"`
-	VisitedOn      openapi_types.Date `json:"visitedOn"`
+	// VisitedOn null を送ると訪問日を消す
+	VisitedOn *openapi_types.Date `json:"visitedOn,omitempty"`
 }
 
 // UpdateProfileRequest 送られた項目だけを変える。省略した項目は現在の値のまま
@@ -664,6 +659,15 @@ type User struct {
 
 	// Id Example: 1
 	Id int64 `json:"id"`
+
+	// IsFollowing 閲覧者がこの利用者をフォローしているか。
+	//
+	// **一覧に出す利用者ぶんをまとめて解決している。** 投稿カードから
+	// その場でフォローできるようにするために持たせている。
+	IsFollowing *bool `json:"isFollowing,omitempty"`
+
+	// IsMe 閲覧者自身か。自分にフォローの導線を出さないために使う
+	IsMe *bool `json:"isMe,omitempty"`
 }
 
 // UserListResponse defines model for UserListResponse.

@@ -93,7 +93,7 @@ test.describe('旅行履歴', () => {
 	test('訪問日順に切り替えられる', async ({ page }) => {
 		const me = await signup(page, { displayName: '履歴の人' });
 		const body = `旅行履歴の投稿 ${Date.now()}`;
-		await createPost(page, { body, prefecture: '北海道', alt: '北海道の写真' });
+		await createPost(page, { body, prefecture: '北海道' });
 
 		await page.goto(`/users/${me.handle}`);
 		await expect(page.getByRole('heading', { name: '投稿', level: 2 })).toBeVisible();
@@ -160,7 +160,7 @@ test.describe('アカウント設定', () => {
 	test('退会すると投稿が消え、ログインできなくなる', async ({ page }) => {
 		const user = await signup(page, { displayName: '退会する人' });
 		const body = `退会で消える投稿 ${Date.now()}`;
-		await createPost(page, { body, prefecture: '沖縄県', alt: '沖縄の写真' });
+		await createPost(page, { body, prefecture: '沖縄県' });
 
 		await page.goto('/settings/account');
 		await page.getByRole('button', { name: '退会の手続きへ進む' }).click();

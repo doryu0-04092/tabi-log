@@ -7,27 +7,65 @@
  *
  * 色は本文と背景で 4.5:1 以上のコントラスト比を満たすように選ぶ
  * （docs/requirements.md のアクセシビリティ要件）。
+ *
+ * ---
+ *
+ * **見た目の方向は「レトロポスター」**（2026-08-29 に決定）。
+ * 70年代の旅行ポスターを下敷きにしている。要点は3つ。
+ *
+ *   1. 地はクリーム。白ではない。紙の色を持たせる
+ *   2. **ぼかした影を使わない。** 濃い輪郭と、ずらしたベタの影で立体を出す
+ *   3. 角は落とさない（4px）。丸みでポップさを出す方向は採らない
+ *
+ * 写真が主役のサービスなので、**画面側の彩度は上げすぎない。**
+ * 主色は1色（焼けた朱）に絞り、それ以外は紙とインクだけで組む。
  */
 
 :root {
 	color-scheme: light dark;
 
-	/* 面 */
-	--color-bg: #ffffff;
-	--color-surface: #f6f7f9;
-	--color-border: #d8dce2;
+	/* 面
+	 *
+	 * page は紙、bg は紙の上に置いた白いカード、surface はその中の
+	 * 少し沈んだ面。**bg を「ページの地」に使わない**（カードが地に沈む）。 */
+	--color-page: #f6ecd8;
+	--color-bg: #fffaf0;
+	--color-surface: #f0e4cb;
+
+	/* 輪郭。**インクの色そのもの。** 薄いグレーの罫は使わない */
+	--color-border: #1c2b2d;
 
 	/* 文字 */
-	--color-text: #1a1d21;
-	--color-text-muted: #56606b;
+	--color-text: #1c2b2d;
+	--color-text-muted: #6b6350;
 
-	/* 主色 */
-	--color-accent: #1f6f4a;
-	--color-accent-text: #ffffff;
+	/* 主色
+	 *
+	 * **3つの面すべてで 4.5:1 を満たす明度まで落としてある。**
+	 * 主色は「塗りつぶしの上に文字を載せる」ときと「文字色として
+	 * 面の上に置く」ときの両方で使うため、いちばん暗い面
+	 * （--color-surface）を基準に決める必要がある。
+	 *
+	 *   #d1502f → クリーム文字を載せて 4.28:1（不足）
+	 *   #b8401f → surface の上の文字で 4.39:1（不足）
+	 *   #ad3b1c → surface 4.87:1 / page 5.24:1 / bg 5.90:1（充足）
+	 */
+	--color-accent: #ad3b1c;
+	--color-accent-text: #fffaf0;
+	/* 装飾専用（文字を載せない面にだけ使う） */
+	--color-accent-soft: #d1502f;
 
 	/* 状態 */
-	--color-danger: #a4252b;
-	--color-ok: #1f6f4a;
+	--color-danger: #b02b1e;
+	--color-ok: #2f6b4f;
+
+	/* 線と影
+	 *
+	 * **ぼかさない。** ずらしたベタの影が、この方向の要である。 */
+	--line: 2px solid var(--color-border);
+	--line-strong: 3px solid var(--color-border);
+	--shadow-hard: 5px 5px 0 var(--color-border);
+	--shadow-hard-sm: 3px 3px 0 var(--color-border);
 
 	/* 余白 */
 	--space-1: 0.25rem;
@@ -37,26 +75,46 @@
 	--space-6: 1.5rem;
 	--space-8: 2rem;
 
-	--radius: 8px;
+	--radius: 4px;
 
 	--font-sans:
 		system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', 'Meiryo', sans-serif;
 	--font-mono: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+	/*
+	 * 見出しとロゴだけに使う欧文の表示用書体。
+	 *
+	 * **本文には使わない。** 日本語のウェブフォントは数百KBになり、
+	 * 見た目の差に対して読み込みの代償が大きい。ロゴ1語のためだけに
+	 * ラテン専用の1書体（十数KB）を読む、という割り切りである。
+	 * 読めない場合に備えて実在する代替を並べてある。
+	 */
+	--font-display: 'Bungee', 'Impact', 'Haettenschweiler', var(--font-sans);
 
 	--measure: 40rem;
 }
 
+/*
+ * 暗い配色。
+ *
+ * **クリームと墨を入れ替える。** 紙が黒くなり、線と文字がクリームになる。
+ * 明るい側と同じ「ポスター」の作りを保つためで、単に色を反転してはいない
+ * （主色は暗い地の上で沈むため、明るい朱に振り替えている）。
+ */
 @media (prefers-color-scheme: dark) {
 	:root {
-		--color-bg: #14171a;
-		--color-surface: #1e2226;
-		--color-border: #333a41;
-		--color-text: #eceff2;
-		--color-text-muted: #a3adb8;
-		--color-accent: #5cc08c;
-		--color-accent-text: #10241a;
-		--color-danger: #ef8f93;
-		--color-ok: #5cc08c;
+		--color-page: #1a2426;
+		--color-bg: #223032;
+		--color-surface: #2b3a3b;
+		--color-border: #e8dcc0;
+		--color-text: #f6ecd8;
+		--color-text-muted: #b3ab93;
+		/* 暗い側も同じ理由で明るさを上げてある。
+		   #e8703f は surface の上の文字で 3.85:1 と足りない。 */
+		--color-accent: #f08a5d;
+		--color-accent-text: #1a2426;
+		--color-accent-soft: #e8703f;
+		--color-danger: #ef7a6a;
+		--color-ok: #6cc39a;
 	}
 }
 
@@ -68,10 +126,34 @@
 
 body {
 	margin: 0;
-	background: var(--color-bg);
+	/* **紙の色。** カードの白と区別が付くようにする。 */
+	background: var(--color-page);
 	color: var(--color-text);
 	font-family: var(--font-sans);
 	line-height: 1.7;
+}
+
+/*
+ * リンクの色。
+ *
+ * **既定の青紫はクリームの地から浮く。** 主色に寄せて、印刷物の
+ * 見出しに引かれた線のように見せる。下線は消さない（色だけで
+ * リンクだと分かる作りにしない）。
+ */
+a {
+	color: var(--color-accent);
+	text-decoration-thickness: 2px;
+	text-underline-offset: 3px;
+}
+
+/*
+ * 見出しは字間を少し開ける。
+ *
+ * ポスターの見出しは詰めずに置かれる。ここだけで「印刷物らしさ」が出る。
+ */
+h1,
+h2 {
+	letter-spacing: 0.04em;
 }
 
 /*

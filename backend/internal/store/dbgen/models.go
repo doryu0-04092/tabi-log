@@ -207,11 +207,11 @@ type Post struct {
 	Body           string
 	PrefectureCode string
 	SpotName       sql.NullString
-	VisitedOn      time.Time
 	LikeCount      uint32
 	CommentCount   uint32
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	VisitedOn      sql.NullTime
 }
 
 type PostTag struct {

@@ -57,7 +57,7 @@ type CreatePostInput struct {
 	Body           string
 	PrefectureCode string
 	SpotName       *string
-	VisitedOn      time.Time
+	VisitedOn      *time.Time
 	Tags           []string
 	Media          []MediaAttachment
 }
@@ -65,7 +65,6 @@ type CreatePostInput struct {
 // MediaAttachment は投稿に紐づける画像1枚の指定。
 type MediaAttachment struct {
 	MediaID uint64
-	AltText string
 }
 
 // CreatePost は投稿を作成し、画像とタグを紐づける。
@@ -86,7 +85,7 @@ func (s *PostStore) CreatePost(ctx context.Context, in CreatePostInput) (uint64,
 		Body:           in.Body,
 		PrefectureCode: in.PrefectureCode,
 		SpotName:       ptrToNullString(in.SpotName),
-		VisitedOn:      in.VisitedOn,
+		VisitedOn:      timeToNullTime(in.VisitedOn),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("投稿の作成に失敗した: %w", err)
@@ -119,7 +118,6 @@ func attachMedia(ctx context.Context, q *dbgen.Queries, postID, userID uint64, m
 	for i, m := range media {
 		res, err := q.AttachMediaToPost(ctx, dbgen.AttachMediaToPostParams{
 			PostID:    sql.NullInt64{Int64: int64(postID), Valid: true},
-			AltText:   sql.NullString{String: m.AltText, Valid: true},
 			SortOrder: uint8(i),
 			ID:        m.MediaID,
 			UserID:    userID,
@@ -170,9 +168,8 @@ type UpdatePostInput struct {
 	Body           string
 	PrefectureCode string
 	SpotName       *string
-	VisitedOn      time.Time
+	VisitedOn      *time.Time
 	Tags           []string
-	AltTexts       []MediaAttachment
 }
 
 // UpdatePost は投稿を編集する。画像の差し替えはできない。
@@ -191,22 +188,11 @@ func (s *PostStore) UpdatePost(ctx context.Context, in UpdatePostInput) error {
 		Body:           in.Body,
 		PrefectureCode: in.PrefectureCode,
 		SpotName:       ptrToNullString(in.SpotName),
-		VisitedOn:      in.VisitedOn,
+		VisitedOn:      timeToNullTime(in.VisitedOn),
 		ID:             in.PostID,
 		UserID:         in.UserID,
 	}); err != nil {
 		return fmt.Errorf("投稿の更新に失敗した: %w", err)
-	}
-
-	for _, m := range in.AltTexts {
-		// post_id を条件に入れることで、他の投稿の画像は更新されない。
-		if err := q.UpdateMediaAltText(ctx, dbgen.UpdateMediaAltTextParams{
-			AltText: sql.NullString{String: m.AltText, Valid: true},
-			ID:      m.MediaID,
-			PostID:  sql.NullInt64{Int64: int64(in.PostID), Valid: true},
-		}); err != nil {
-			return fmt.Errorf("代替テキストの更新に失敗した: %w", err)
-		}
 	}
 
 	if err := replaceTags(ctx, q, in.PostID, in.Tags); err != nil {
@@ -302,7 +288,6 @@ func (s *PostStore) GetPost(ctx context.Context, postID uint64, signer storage.U
 		}
 		media = append(media, domain.PostMedia{
 			ID:        m.ID,
-			AltText:   m.AltText.String,
 			Width:     int(m.Width.Int32),
 			Height:    int(m.Height.Int32),
 			ThumbURL:  thumb,
@@ -326,7 +311,7 @@ func (s *PostStore) GetPost(ctx context.Context, postID uint64, signer storage.U
 			Region:   row.Region,
 		},
 		SpotName:     nullStringToPtr(row.SpotName),
-		VisitedOn:    row.VisitedOn,
+		VisitedOn:    nullTimeToPtr(row.VisitedOn),
 		Media:        media,
 		Tags:         tags,
 		LikeCount:    int(row.LikeCount),

@@ -91,7 +91,12 @@ func NewRouter(deps Deps) http.Handler {
 
 	// アバターは投稿・コメント・通知・一覧のどこにも出てくる。
 	// 引き方を1つに寄せ、各ハンドラは同じものを使う。
-	avatars := &avatarResolver{repo: deps.Account, storage: deps.Storage, logger: deps.Logger}
+	avatars := &avatarResolver{
+		repo:    deps.Account,
+		follows: deps.Follows,
+		storage: deps.Storage,
+		logger:  deps.Logger,
+	}
 
 	srv := &server{
 		healthHandler:     &healthHandler{db: deps.DB, logger: deps.Logger},

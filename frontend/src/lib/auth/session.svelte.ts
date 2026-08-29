@@ -119,3 +119,20 @@ function applySession(data: AuthPayload): void {
 export function setSessionUser(user: User): void {
 	currentUser = user;
 }
+
+/**
+ * 未読の件数を 0 として扱うよう、購読している画面へ知らせる。
+ *
+ * **通知の一覧を開いた時点でヘッダーの印を消すために使う。**
+ * ヘッダーは画面を移るたびに件数を取り直すが、同じ画面に留まったままでは
+ * 取り直されない。既読にした側から明示的に伝える。
+ */
+let unreadListener: (() => void) | null = null;
+
+export function onUnreadCleared(fn: () => void): void {
+	unreadListener = fn;
+}
+
+export function clearUnreadBadge(): void {
+	unreadListener?.();
+}

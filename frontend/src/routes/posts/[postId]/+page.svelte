@@ -5,6 +5,7 @@
 	import { ApiError } from '$lib/api/client';
 	import { deletePost, getPost, type Post } from '$lib/api/posts';
 	import { session } from '$lib/auth/session.svelte';
+	import BackLink from '$lib/components/BackLink.svelte';
 	import CommentSection from '$lib/components/CommentSection.svelte';
 	import PostCard from '$lib/components/PostCard.svelte';
 
@@ -67,10 +68,10 @@
 	<p>読み込んでいます…</p>
 {:else if view.kind === 'error'}
 	<p class="error" role="alert"><span aria-hidden="true">✕</span> {view.message}</p>
-	<p><a href={resolve('/')}>新着へ戻る</a></p>
+	<p><a href={resolve('/')}>ホームへ戻る</a></p>
 {:else}
 	<nav aria-label="パンくず">
-		<a href={resolve('/')}>新着</a> ／ {view.post.prefecture.name}の投稿
+		<a href={resolve('/')}>ホーム</a> ／ {view.post.prefecture.name}の投稿
 	</nav>
 
 	<PostCard post={view.post} linkToDetail={false} />
@@ -97,6 +98,8 @@
 			{/if}
 		</div>
 	{/if}
+
+	<BackLink href={resolve('/')} />
 {/if}
 
 <style>
@@ -117,7 +120,7 @@
 		gap: var(--space-3);
 		margin-top: var(--space-6);
 		padding-top: var(--space-4);
-		border-top: 1px solid var(--color-border);
+		border-top: var(--line);
 	}
 
 	.owner-actions p {
@@ -131,7 +134,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: transparent;
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		cursor: pointer;
 	}

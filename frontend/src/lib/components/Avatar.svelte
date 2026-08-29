@@ -32,7 +32,7 @@
 		border-radius: 50%;
 		object-fit: cover;
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 	}
 
 	.small {
