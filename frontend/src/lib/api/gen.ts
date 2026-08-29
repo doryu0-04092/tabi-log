@@ -881,6 +881,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/docs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * API 仕様を読む画面
+         * @description Swagger UI で仕様を表示する。**仕様そのものは /openapi.yaml から読む。**
+         *
+         *     この API は公開 API ではないため、仕様を誰でも読める場所に置くことには
+         *     「攻撃の下調べを楽にする」側面がある。それでも配っているのは、
+         *     **隠しても守りにならない**（エンドポイントは画面の通信を見れば分かる）
+         *     一方で、仕様が読めることの利点が大きいためである。
+         *     **認可はサーバー側で担保しており、仕様を隠すことに依存していない。**
+         */
+        get: operations["getDocs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi.yaml": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * API 仕様（YAML）
+         * @description docs/openapi.yaml をそのまま返す。**この応答が正である。**
+         *     コードから組み立てているのではなく、仕様のファイルを配っている。
+         */
+        get: operations["getOpenAPISpec"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/livez": {
         parameters: {
             query?: never;
@@ -2456,6 +2503,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PrefectureListResponse"];
+                };
+            };
+        };
+    };
+    getDocs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 仕様を表示する HTML */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+        };
+    };
+    getOpenAPISpec: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OpenAPI 仕様 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/yaml": string;
                 };
             };
         };

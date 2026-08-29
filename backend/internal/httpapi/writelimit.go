@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"time"
 )
 
 /*
@@ -26,12 +25,9 @@ import (
 タスク数の倍になる。
 */
 
-// 既定値。設定で上書きできる。
-const (
-	defaultPostCreateLimit    = 20
-	defaultCommentCreateLimit = 60
-	defaultWriteLimitWindow   = time.Hour
-)
+// 既定値は internal/config が持つ（POST_CREATE_LIMIT / COMMENT_CREATE_LIMIT /
+// WRITE_LIMIT_WINDOW）。**ここには置かない。** 2か所に書くと、
+// 片方だけ変えたときに「設定したはずの値と違う」ことになる。
 
 // writeLimiter は書き込みの上限を1種類ぶん持つ。
 type writeLimiter struct {

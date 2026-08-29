@@ -1,7 +1,7 @@
 // copyspec は API 仕様のファイルを1つ写す。
 //
 // **なぜ専用のコマンドがあるのか。**
-// go:generate の行は OS のシェルを通らないため、cp や copy を
+// `go:generate` の行は OS のシェルを通らないため、cp や copy を
 // 直接は書けない（Windows と Linux で書き分けにもなる）。
 // 標準ライブラリだけで済む処理なので、小さなコマンドにしてある。
 package main
