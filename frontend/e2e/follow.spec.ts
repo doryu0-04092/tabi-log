@@ -175,7 +175,13 @@ test.describe('フォロー', () => {
 		await toggleFollow(page, '検査のフォロー先', true);
 
 		await page.goto(`/users/${target.handle}/followers`);
-		await expect(page.getByRole('link', { name: /検査のフォロワー/ })).toBeVisible();
+		// **本文の中で掴む。** ヘッダーの表示名も自分のプロフィールへのリンクなので、
+		// 画面全体から探すと2つ見つかる（131行目と同じ理由）。
+		// **ここだけ絞り忘れていた。** 描画の速さ次第で片方しか見つからず、
+		// 通ったり落ちたりしていた（CI で表面化）。
+		await expect(
+			page.locator('#main').getByRole('link', { name: /検査のフォロワー/ })
+		).toBeVisible();
 
 		const results = await new AxeBuilder({ page })
 			.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
