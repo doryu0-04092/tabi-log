@@ -205,6 +205,92 @@ func (q *Queries) ListPostsBefore(ctx context.Context, arg ListPostsBeforeParams
 	return items, nil
 }
 
+const listPostsByUserBefore = `-- name: ListPostsByUserBefore :many
+SELECT
+    p.id, p.user_id, p.body, p.prefecture_code, p.spot_name, p.visited_on,
+    p.like_count, p.comment_count, p.created_at, p.updated_at,
+    u.handle, u.display_name, u.bio,
+    pref.name AS prefecture_name, pref.name_kana AS prefecture_name_kana, pref.region
+FROM posts p
+JOIN users u ON u.id = p.user_id
+JOIN prefectures pref ON pref.code = p.prefecture_code
+WHERE p.user_id = ? AND p.id < ?
+ORDER BY p.id DESC
+LIMIT ?
+`
+
+type ListPostsByUserBeforeParams struct {
+	UserID uint64
+	ID     uint64
+	Limit  int32
+}
+
+type ListPostsByUserBeforeRow struct {
+	ID                 uint64
+	UserID             uint64
+	Body               string
+	PrefectureCode     string
+	SpotName           sql.NullString
+	VisitedOn          time.Time
+	LikeCount          uint32
+	CommentCount       uint32
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	Handle             string
+	DisplayName        string
+	Bio                sql.NullString
+	PrefectureName     string
+	PrefectureNameKana string
+	Region             string
+}
+
+// ある利用者の投稿。新着フィードと同じくカーソルページネーション。
+//
+// 索引は ix_posts_user_id (user_id, id DESC)。
+// **ix_posts_user_created (user_id, created_at DESC) では足りない。**
+// 絞り込みには使えるが ORDER BY id DESC を索引の並びで解決できず、
+// EXPLAIN に Using filesort が出る（2026-08-29 に実測して確認し、
+// 000003 で索引を追加した）。投稿数の多い利用者ほど並べ替える行が増える。
+func (q *Queries) ListPostsByUserBefore(ctx context.Context, arg ListPostsByUserBeforeParams) ([]ListPostsByUserBeforeRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPostsByUserBefore, arg.UserID, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPostsByUserBeforeRow{}
+	for rows.Next() {
+		var i ListPostsByUserBeforeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Body,
+			&i.PrefectureCode,
+			&i.SpotName,
+			&i.VisitedOn,
+			&i.LikeCount,
+			&i.CommentCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Handle,
+			&i.DisplayName,
+			&i.Bio,
+			&i.PrefectureName,
+			&i.PrefectureNameKana,
+			&i.Region,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updatePost = `-- name: UpdatePost :exec
 UPDATE posts
 SET body = ?, prefecture_code = ?, spot_name = ?, visited_on = ?

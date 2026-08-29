@@ -38,7 +38,7 @@ func NewReactionStore(db *sql.DB) *ReactionStore {
 // 分かれていると「いいねは記録されたが件数がずれる」「いいねされたのに
 // 通知が来ない」という、利用者から見て壊れた状態が生じる。
 func (s *ReactionStore) Like(ctx context.Context, userID, postID uint64) error {
-	return s.inTx(ctx, func(q *dbgen.Queries) error {
+	return inTx(ctx, s.db, s.q, func(q *dbgen.Queries) error {
 		owner, err := postOwner(ctx, q, postID)
 		if err != nil {
 			return err
@@ -72,7 +72,7 @@ func (s *ReactionStore) Like(ctx context.Context, userID, postID uint64) error {
 
 // Unlike はいいねを取り消す。いいねしていなければ何もしない（冪等）。
 func (s *ReactionStore) Unlike(ctx context.Context, userID, postID uint64) error {
-	return s.inTx(ctx, func(q *dbgen.Queries) error {
+	return inTx(ctx, s.db, s.q, func(q *dbgen.Queries) error {
 		owner, err := postOwner(ctx, q, postID)
 		if err != nil {
 			return err
@@ -136,7 +136,7 @@ func (s *ReactionStore) LikedPostIDs(ctx context.Context, userID uint64, postIDs
 func (s *ReactionStore) CreateComment(ctx context.Context, userID, postID uint64, body string) (uint64, error) {
 	var commentID uint64
 
-	err := s.inTx(ctx, func(q *dbgen.Queries) error {
+	err := inTx(ctx, s.db, s.q, func(q *dbgen.Queries) error {
 		owner, err := postOwner(ctx, q, postID)
 		if err != nil {
 			return err
@@ -230,7 +230,7 @@ func (s *ReactionStore) FindCommentPermission(ctx context.Context, commentID uin
 
 // DeleteComment はコメントを削除する。権限の確認は呼び出し側で済ませておくこと。
 func (s *ReactionStore) DeleteComment(ctx context.Context, commentID, postID uint64) error {
-	return s.inTx(ctx, func(q *dbgen.Queries) error {
+	return inTx(ctx, s.db, s.q, func(q *dbgen.Queries) error {
 		res, err := q.DeleteCommentByID(ctx, commentID)
 		if err != nil {
 			return fmt.Errorf("コメントの削除に失敗した: %w", err)
@@ -294,27 +294,6 @@ func (s *ReactionStore) ListComments(ctx context.Context, postID, cursorID uint6
 // ---------------------------------------------------------------------------
 // 共通処理
 // ---------------------------------------------------------------------------
-
-// inTx はトランザクションの開始・巻き戻し・確定をまとめる。
-//
-// 同じ定型が何度も出るため切り出している。巻き戻しの書き忘れは
-// 接続を握ったまま離さない不具合になり、見つけにくい。
-func (s *ReactionStore) inTx(ctx context.Context, fn func(*dbgen.Queries) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("トランザクションを開始できない: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if err := fn(s.q.WithTx(tx)); err != nil {
-		return err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("変更を確定できない: %w", err)
-	}
-	return nil
-}
 
 // postOwner は投稿の所有者を返す。存在しなければ ErrPostNotFound。
 func postOwner(ctx context.Context, q *dbgen.Queries, postID uint64) (uint64, error) {

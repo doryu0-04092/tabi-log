@@ -19,14 +19,14 @@ const maxCursorID = ^uint64(0)
 
 // ListFeed は新着フィードを返す。
 //
-// nextCursor が空文字なら、それ以上の投稿は無い。
+// nextCursor が 0 なら、それ以上の投稿は無い。
 func (s *PostStore) ListFeed(
 	ctx context.Context,
 	cursorID uint64,
 	limit int,
 	signer storage.URLSigner,
 	urlTTL time.Duration,
-) (posts []domain.Post, nextCursor uint64, err error) {
+) ([]domain.Post, uint64, error) {
 	if cursorID == 0 {
 		cursorID = maxCursorID
 	}
@@ -40,7 +40,53 @@ func (s *PostStore) ListFeed(
 	if err != nil {
 		return nil, 0, fmt.Errorf("フィードの取得に失敗した: %w", err)
 	}
+	return s.buildPage(ctx, rows, limit, signer, urlTTL)
+}
 
+// ListUserPosts はある利用者の投稿を新しい順に返す。
+//
+// 並びとカーソルの扱いは新着フィードと同じである。違うのは絞り込みだけなので、
+// 組み立ては buildPage に寄せてある。
+func (s *PostStore) ListUserPosts(
+	ctx context.Context,
+	userID uint64,
+	cursorID uint64,
+	limit int,
+	signer storage.URLSigner,
+	urlTTL time.Duration,
+) ([]domain.Post, uint64, error) {
+	if cursorID == 0 {
+		cursorID = maxCursorID
+	}
+
+	rows, err := s.q.ListPostsByUserBefore(ctx, dbgen.ListPostsByUserBeforeParams{
+		UserID: userID,
+		ID:     cursorID,
+		Limit:  int32(limit + 1),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("投稿の取得に失敗した: %w", err)
+	}
+
+	// 選ぶ列が同じなので、生成された2つの行の型は項目も並びも一致する。
+	// 変換できなくなったら、それは SELECT がずれた合図である。
+	converted := make([]dbgen.ListPostsBeforeRow, 0, len(rows))
+	for _, r := range rows {
+		converted = append(converted, dbgen.ListPostsBeforeRow(r))
+	}
+	return s.buildPage(ctx, converted, limit, signer, urlTTL)
+}
+
+// buildPage は取得した行を1ページ分の投稿に組み立てる。
+//
+// rows は「限度より1件多く取ったもの」を受け取り、続きの有無をここで判定する。
+func (s *PostStore) buildPage(
+	ctx context.Context,
+	rows []dbgen.ListPostsBeforeRow,
+	limit int,
+	signer storage.URLSigner,
+	urlTTL time.Duration,
+) (posts []domain.Post, nextCursor uint64, err error) {
 	hasMore := len(rows) > limit
 	if hasMore {
 		rows = rows[:limit]

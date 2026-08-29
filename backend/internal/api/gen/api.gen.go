@@ -518,11 +518,65 @@ type User struct {
 	Id int64 `json:"id"`
 }
 
+// UserListResponse defines model for UserListResponse.
+type UserListResponse struct {
+	Data struct {
+		// NextCursor 続きがある場合のみ入る
+		NextCursor *string       `json:"nextCursor,omitempty"`
+		Users      []UserSummary `json:"users"`
+	} `json:"data"`
+}
+
+// UserProfile defines model for UserProfile.
+type UserProfile struct {
+	Bio            *string `json:"bio,omitempty"`
+	DisplayName    string  `json:"displayName"`
+	FollowerCount  int     `json:"followerCount"`
+	FollowingCount int     `json:"followingCount"`
+	Handle         string  `json:"handle"`
+	Id             int64   `json:"id"`
+	IsFollowing    bool    `json:"isFollowing"`
+	IsMe           bool    `json:"isMe"`
+	PostCount      int     `json:"postCount"`
+
+	// VisitedPrefectureCount 投稿した都道府県の種類数。制覇率は 47 で割って画面が求める。
+	// **地図そのものは 8 章で作る。** ここでは数だけを返す。
+	VisitedPrefectureCount int `json:"visitedPrefectureCount"`
+}
+
+// UserProfileResponse defines model for UserProfileResponse.
+type UserProfileResponse struct {
+	Data UserProfile `json:"data"`
+}
+
+// UserSummary 一覧に並べる利用者。フォローの導線を出すための状態を含む
+type UserSummary struct {
+	Bio         *string `json:"bio,omitempty"`
+	DisplayName string  `json:"displayName"`
+	Handle      string  `json:"handle"`
+	Id          int64   `json:"id"`
+
+	// IsFollowing 閲覧者がこの利用者をフォローしているか
+	IsFollowing bool `json:"isFollowing"`
+
+	// IsMe 閲覧者自身か。自分にフォローの導線を出さないために使う
+	IsMe bool `json:"isMe"`
+}
+
+// Handle defines model for Handle.
+type Handle = string
+
 // PostId defines model for PostId.
 type PostId = int64
 
 // RequestedWith defines model for RequestedWith.
 type RequestedWith string
+
+// UserCursor defines model for UserCursor.
+type UserCursor = string
+
+// UserLimit defines model for UserLimit.
+type UserLimit = int
 
 // CsrfRejected defines model for CsrfRejected.
 type CsrfRejected = ErrorResponse
@@ -579,6 +633,27 @@ type ListPostsParams struct {
 
 // ListCommentsParams defines parameters for ListComments.
 type ListCommentsParams struct {
+	// Cursor 前回の応答の `nextCursor`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListFollowersParams defines parameters for ListFollowers.
+type ListFollowersParams struct {
+	// Cursor 前回の応答の `nextCursor`
+	Cursor *UserCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *UserLimit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListFollowingParams defines parameters for ListFollowing.
+type ListFollowingParams struct {
+	// Cursor 前回の応答の `nextCursor`
+	Cursor *UserCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *UserLimit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListUserPostsParams defines parameters for ListUserPosts.
+type ListUserPostsParams struct {
 	// Cursor 前回の応答の `nextCursor`
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
@@ -664,6 +739,24 @@ type ServerInterface interface {
 	// GetReadyz 依存先を含む疎通確認
 	// (GET /readyz)
 	GetReadyz(w http.ResponseWriter, r *http.Request)
+	// GetUserProfile プロフィールを取得する
+	// (GET /users/{handle})
+	GetUserProfile(w http.ResponseWriter, r *http.Request, handle Handle)
+	// UnfollowUser フォローを解除する
+	// (DELETE /users/{handle}/follow)
+	UnfollowUser(w http.ResponseWriter, r *http.Request, handle Handle)
+	// FollowUser フォローする
+	// (PUT /users/{handle}/follow)
+	FollowUser(w http.ResponseWriter, r *http.Request, handle Handle)
+	// ListFollowers フォロワーの一覧
+	// (GET /users/{handle}/followers)
+	ListFollowers(w http.ResponseWriter, r *http.Request, handle Handle, params ListFollowersParams)
+	// ListFollowing フォロー中の一覧
+	// (GET /users/{handle}/following)
+	ListFollowing(w http.ResponseWriter, r *http.Request, handle Handle, params ListFollowingParams)
+	// ListUserPosts その利用者の投稿
+	// (GET /users/{handle}/posts)
+	ListUserPosts(w http.ResponseWriter, r *http.Request, handle Handle, params ListUserPostsParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -1186,6 +1279,249 @@ func (siw *ServerInterfaceWrapper) GetReadyz(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// GetUserProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetUserProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "handle" -------------
+	var handle Handle
+
+	err = runtime.BindStyledParameterWithOptions("simple", "handle", r.PathValue("handle"), &handle, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "handle", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUserProfile(w, r, handle)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnfollowUser operation middleware
+func (siw *ServerInterfaceWrapper) UnfollowUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "handle" -------------
+	var handle Handle
+
+	err = runtime.BindStyledParameterWithOptions("simple", "handle", r.PathValue("handle"), &handle, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "handle", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnfollowUser(w, r, handle)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// FollowUser operation middleware
+func (siw *ServerInterfaceWrapper) FollowUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "handle" -------------
+	var handle Handle
+
+	err = runtime.BindStyledParameterWithOptions("simple", "handle", r.PathValue("handle"), &handle, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "handle", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.FollowUser(w, r, handle)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListFollowers operation middleware
+func (siw *ServerInterfaceWrapper) ListFollowers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "handle" -------------
+	var handle Handle
+
+	err = runtime.BindStyledParameterWithOptions("simple", "handle", r.PathValue("handle"), &handle, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "handle", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListFollowersParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListFollowers(w, r, handle, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListFollowing operation middleware
+func (siw *ServerInterfaceWrapper) ListFollowing(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "handle" -------------
+	var handle Handle
+
+	err = runtime.BindStyledParameterWithOptions("simple", "handle", r.PathValue("handle"), &handle, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "handle", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListFollowingParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListFollowing(w, r, handle, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListUserPosts operation middleware
+func (siw *ServerInterfaceWrapper) ListUserPosts(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "handle" -------------
+	var handle Handle
+
+	err = runtime.BindStyledParameterWithOptions("simple", "handle", r.PathValue("handle"), &handle, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "handle", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUserPostsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUserPosts(w, r, handle, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1313,6 +1649,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/media/presign", wrapper.PresignMediaUpload)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/media/{mediaId}", wrapper.GetMediaStatus)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}", wrapper.GetUserProfile)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/users/{handle}/follow", wrapper.UnfollowUser)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/users/{handle}/follow", wrapper.FollowUser)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}/posts", wrapper.ListUserPosts)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}/followers", wrapper.ListFollowers)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}/following", wrapper.ListFollowing)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/posts", wrapper.ListPosts)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/posts", wrapper.CreatePost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/posts/{postId}/likes", wrapper.UnlikePost)
