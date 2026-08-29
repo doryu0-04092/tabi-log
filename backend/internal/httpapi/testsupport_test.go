@@ -12,6 +12,7 @@ import (
 
 	"github.com/doryu0-04092/tabi-log/backend/internal/auth"
 	"github.com/doryu0-04092/tabi-log/backend/internal/domain"
+	"github.com/doryu0-04092/tabi-log/backend/internal/storage"
 	"github.com/doryu0-04092/tabi-log/backend/internal/store"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -53,6 +54,8 @@ type testDeps struct {
 	pingErr     error
 	prefectures PrefectureLister
 	auth        AuthRepository
+	posts       PostRepository
+	reactions   ReactionRepository
 	tokens      *auth.JWTService
 }
 
@@ -68,11 +71,19 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 	if d.auth == nil {
 		d.auth = &stubAuthRepo{}
 	}
+	if d.posts == nil {
+		d.posts = &stubPostRepo{}
+	}
+	if d.reactions == nil {
+		d.reactions = &stubReactionRepo{}
+	}
 
 	deps := Deps{
 		DB:            stubPinger{err: d.pingErr},
 		Prefectures:   d.prefectures,
 		Auth:          d.auth,
+		Posts:         d.posts,
+		Reactions:     d.reactions,
 		TokenIssuer:   d.tokens,
 		TokenVerifier: d.tokens,
 		AuthOptions: AuthOptions{
@@ -193,4 +204,101 @@ func cookieByName(rec *httptest.ResponseRecorder, name string) *http.Cookie {
 		}
 	}
 	return nil
+}
+
+// stubPostRepo は PostRepository のうち、反応のテストで使う部分だけを持つ。
+//
+// 使わないメソッドは「呼ばれたら失敗」にしていない。呼ばれても
+// 素直な零値を返すほうが、テストの意図（何を確かめているか）が読みやすい。
+type stubPostRepo struct {
+	owner    uint64
+	ownerErr error
+}
+
+func (s *stubPostRepo) CreatePendingMedia(context.Context, uint64, string) (uint64, error) {
+	return 0, nil
+}
+func (s *stubPostRepo) CreatePost(context.Context, store.CreatePostInput) (uint64, error) {
+	return 0, nil
+}
+func (s *stubPostRepo) UpdatePost(context.Context, store.UpdatePostInput) error { return nil }
+func (s *stubPostRepo) DeletePost(context.Context, uint64, uint64) ([]string, error) {
+	return nil, nil
+}
+func (s *stubPostRepo) PostOwner(context.Context, uint64) (uint64, error) {
+	return s.owner, s.ownerErr
+}
+func (s *stubPostRepo) FindMediaByID(context.Context, uint64) (store.MediaRecord, error) {
+	return store.MediaRecord{}, nil
+}
+func (s *stubPostRepo) GetPost(context.Context, uint64, storage.URLSigner, time.Duration) (domain.Post, error) {
+	return domain.Post{}, nil
+}
+func (s *stubPostRepo) ListFeed(context.Context, uint64, int, storage.URLSigner, time.Duration) ([]domain.Post, uint64, error) {
+	return nil, 0, nil
+}
+
+// stubReactionRepo は呼び出しを記録し、返す値をテストごとに差し替えられる。
+type stubReactionRepo struct {
+	likeCalls   [][2]uint64 // {userID, postID}
+	unlikeCalls [][2]uint64
+	likeErr     error
+
+	created     []string
+	createID    uint64
+	createErr   error
+	comments    []domain.Comment
+	nextCursor  uint64
+	listErr     error
+	perm        store.CommentPermission
+	permErr     error
+	deleted     []uint64
+	deleteErr   error
+	lastLimit   int
+	lastCursor  uint64
+	lastPostIDs []uint64
+}
+
+func (s *stubReactionRepo) Like(_ context.Context, userID, postID uint64) error {
+	s.likeCalls = append(s.likeCalls, [2]uint64{userID, postID})
+	return s.likeErr
+}
+
+func (s *stubReactionRepo) Unlike(_ context.Context, userID, postID uint64) error {
+	s.unlikeCalls = append(s.unlikeCalls, [2]uint64{userID, postID})
+	return s.likeErr
+}
+
+func (s *stubReactionRepo) LikedPostIDs(_ context.Context, _ uint64, postIDs []uint64) (map[uint64]bool, error) {
+	s.lastPostIDs = postIDs
+	return map[uint64]bool{}, nil
+}
+
+func (s *stubReactionRepo) CreateComment(_ context.Context, _, _ uint64, body string) (uint64, error) {
+	s.created = append(s.created, body)
+	return s.createID, s.createErr
+}
+
+func (s *stubReactionRepo) DeleteComment(_ context.Context, commentID, _ uint64) error {
+	s.deleted = append(s.deleted, commentID)
+	return s.deleteErr
+}
+
+func (s *stubReactionRepo) FindCommentPermission(context.Context, uint64) (store.CommentPermission, error) {
+	return s.perm, s.permErr
+}
+
+func (s *stubReactionRepo) ListComments(_ context.Context, _, cursorID uint64, limit int) ([]domain.Comment, uint64, error) {
+	s.lastCursor = cursorID
+	s.lastLimit = limit
+	return s.comments, s.nextCursor, s.listErr
+}
+
+func (s *stubReactionRepo) GetComment(_ context.Context, commentID uint64) (domain.Comment, error) {
+	for _, c := range s.comments {
+		if c.ID == commentID {
+			return c, nil
+		}
+	}
+	return domain.Comment{}, store.ErrCommentNotFound
 }

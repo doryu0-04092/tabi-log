@@ -47,3 +47,14 @@ type PostMedia struct {
 	ThumbURL  string
 	MediumURL string
 }
+
+// Comment は投稿へのコメントを表す。
+//
+// 返信ツリーは作らないため親コメントへの参照は持たない
+// （要件定義書 3.2 の対象外）。
+type Comment struct {
+	ID        uint64
+	Author    User
+	Body      string
+	CreatedAt time.Time
+}

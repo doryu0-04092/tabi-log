@@ -229,6 +229,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/posts/{postId}/likes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * いいねする
+         * @description **冪等である。** 既にいいねしていても 204 を返す。
+         *     POST ではなく PUT にしているのはそのためで、
+         *     「この投稿に対する自分のいいねを、有る状態にする」という意味になる。
+         *
+         *     二重のいいねは複合主キー `(user_id, post_id)` が防ぐ。
+         *
+         *     **`posts.like_count` の増減をいいねの登録と同一トランザクションで行う。**
+         *     フィードは1画面で20件返すため、都度 `COUNT` を撃つと20件それぞれに
+         *     集計が走る（N+1 の温床）。カウンタ列にする代わりに、
+         *     整合性はトランザクションで担保する。
+         *
+         *     自分の投稿にもいいねできる。ただし**自分への通知は作らない**。
+         */
+        put: operations["likePost"];
+        post?: never;
+        /**
+         * いいねを取り消す
+         * @description **冪等である。** いいねしていなくても 204 を返す。
+         *
+         *     取り消すと、対応する通知も削除する。
+         */
+        delete: operations["unlikePost"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/posts/{postId}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * コメントの一覧
+         * @description 古い順に返す。会話は上から読むものであり、フィードのように
+         *     新しいものから見るのは適さないためである。
+         *
+         *     **返信ツリーは作らない**（要件定義書 3.2 の対象外）。1階層に固定する。
+         */
+        get: operations["listComments"];
+        put?: never;
+        /**
+         * コメントする
+         * @description **`posts.comment_count` の増減をコメントの登録と同一トランザクションで行う。**
+         *
+         *     自分の投稿にもコメントできる。ただし**自分への通知は作らない**。
+         */
+        post: operations["createComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/comments/{commentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * コメントを削除する
+         * @description 削除できるのは**コメントを書いた本人と、投稿の作成者**の両方である。
+         *
+         *     投稿者に削除させないと、自分の投稿に付いた不快なコメントを消す手段が
+         *     「投稿ごと消す」しか無くなる。
+         */
+        delete: operations["deleteComment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/posts/{postId}": {
         parameters: {
             query?: never;
@@ -502,6 +595,34 @@ export interface components {
         PostResponse: {
             data: components["schemas"]["Post"];
         };
+        CreateCommentRequest: {
+            body: string;
+        };
+        CommentResponse: {
+            data: components["schemas"]["Comment"];
+        };
+        CommentListResponse: {
+            data: {
+                comments: components["schemas"]["Comment"][];
+                /** @description 次のページを取るときに `cursor` として渡す。これ以上無い場合は null */
+                nextCursor?: string | null;
+            };
+        };
+        Comment: {
+            /** Format: int64 */
+            id: number;
+            author: components["schemas"]["User"];
+            body: string;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * @description このコメントを削除できるか。**表示の出し分けのためだけに使う。**
+             *
+             *     権限そのものはサーバー側で判定しており、この値を書き換えても
+             *     削除はできない。画面がボタンを出すかどうかを決めるための情報である。
+             */
+            canDelete: boolean;
+        };
         PostListResponse: {
             data: {
                 posts: components["schemas"]["Post"][];
@@ -527,6 +648,20 @@ export interface components {
             tags: string[];
             likeCount: number;
             commentCount: number;
+            /**
+             * @description **この投稿に自分がいいねしているか。**
+             *
+             *     フィードでは表示する20件それぞれについて必要になる。
+             *     投稿ごとに問い合わせると N+1 になるため、
+             *     `likes` の主キーを `(user_id, post_id)` の順にしてあり、
+             *     `WHERE user_id = ? AND post_id IN (...)` の1クエリで解決する。
+             */
+            isLiked: boolean;
+            /**
+             * @description この投稿を削除できるか。**表示の出し分けのためだけに使う。**
+             *     権限はサーバー側で判定しており、この値を書き換えても削除はできない。
+             */
+            canDelete: boolean;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -938,6 +1073,130 @@ export interface operations {
             };
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthenticated"];
+        };
+    };
+    likePost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description いいねした（既にしていた場合も含む） */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    unlikePost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 取り消した（していなかった場合も含む） */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listComments: {
+        parameters: {
+            query?: {
+                /** @description 前回の応答の `nextCursor` */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description コメントの一覧 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description 作成した */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                commentId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除した */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getPost: {

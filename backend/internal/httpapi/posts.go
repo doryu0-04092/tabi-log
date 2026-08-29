@@ -67,8 +67,11 @@ type ObjectStorage interface {
 type postHandler struct {
 	repo    PostRepository
 	storage ObjectStorage
-	logger  *slog.Logger
-	now     func() time.Time
+	// likes は「自分がいいねしているか」を解決するために使う。
+	// フィードでは20件分をまとめて引く（投稿ごとに問い合わせない）。
+	likes  ReactionRepository
+	logger *slog.Logger
+	now    func() time.Time
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +334,8 @@ func (h *postHandler) requireOwner(w http.ResponseWriter, r *http.Request, postI
 }
 
 func (h *postHandler) respondWithPost(w http.ResponseWriter, r *http.Request, postID uint64, status int) {
+	viewerID, _ := UserIDFrom(r.Context())
+
 	post, err := h.repo.GetPost(r.Context(), postID, h.storage, displayURLTTL)
 	if errors.Is(err, store.ErrPostNotFound) {
 		writeError(w, r, http.StatusNotFound, "not_found", "投稿が見つかりません")
@@ -340,7 +345,14 @@ func (h *postHandler) respondWithPost(w http.ResponseWriter, r *http.Request, po
 		h.internalError(w, r, "投稿の取得に失敗した", err)
 		return
 	}
-	writeJSON(w, r, status, toAPIPost(post))
+
+	liked, err := h.likes.LikedPostIDs(r.Context(), viewerID, []uint64{postID})
+	if err != nil {
+		h.internalError(w, r, "いいねの状態を取得できない", err)
+		return
+	}
+
+	writeJSON(w, r, status, toAPIPost(post, viewerID, liked[postID]))
 }
 
 func (h *postHandler) internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {
@@ -351,7 +363,11 @@ func (h *postHandler) internalError(w http.ResponseWriter, r *http.Request, msg 
 	writeError(w, r, http.StatusInternalServerError, "internal_error", "サーバー内部でエラーが発生しました")
 }
 
-func toAPIPost(p domain.Post) gen.Post {
+// toAPIPost はドメインの型を API の型へ変換する。
+//
+// isLiked と canDelete は**閲覧者によって変わる**ため、
+// 投稿そのものではなく引数として受け取る。
+func toAPIPost(p domain.Post, viewerID uint64, isLiked bool) gen.Post {
 	media := make([]gen.Media, 0, len(p.Media))
 	for _, m := range p.Media {
 		media = append(media, gen.Media{
@@ -380,6 +396,8 @@ func toAPIPost(p domain.Post) gen.Post {
 		Tags:         tags,
 		LikeCount:    p.LikeCount,
 		CommentCount: p.CommentCount,
+		IsLiked:      isLiked,
+		CanDelete:    p.Author.ID == viewerID,
 		CreatedAt:    p.CreatedAt,
 		UpdatedAt:    &p.UpdatedAt,
 	}
@@ -549,9 +567,22 @@ func (h *postHandler) ListPosts(w http.ResponseWriter, r *http.Request, params g
 		return
 	}
 
+	// **いいねの状態は20件分を1クエリでまとめて引く。**
+	// 投稿ごとに問い合わせると20回の往復になる（N+1）。
+	postIDs := make([]uint64, 0, len(posts))
+	for _, p := range posts {
+		postIDs = append(postIDs, p.ID)
+	}
+	viewerID, _ := UserIDFrom(r.Context())
+	liked, err := h.likes.LikedPostIDs(r.Context(), viewerID, postIDs)
+	if err != nil {
+		h.internalError(w, r, "いいねの状態を取得できない", err)
+		return
+	}
+
 	items := make([]gen.Post, 0, len(posts))
 	for _, p := range posts {
-		items = append(items, toAPIPost(p))
+		items = append(items, toAPIPost(p, viewerID, liked[p.ID]))
 	}
 
 	var body gen.PostListResponse

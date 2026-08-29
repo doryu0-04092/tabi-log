@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { components } from '$lib/api/gen';
+	import LikeButton from '$lib/components/LikeButton.svelte';
 
 	type Post = components['schemas']['Post'];
 
@@ -101,7 +102,7 @@
 			数は記号だけでなく語でも示す。記号の意味が伝わらない利用者にも
 			「いいね 12件」と読み上げられる。
 		-->
-		<span><span aria-hidden="true">♥</span> いいね {post.likeCount}件</span>
+		<LikeButton postId={post.id} liked={post.isLiked} count={post.likeCount} />
 		<span><span aria-hidden="true">💬</span> コメント {post.commentCount}件</span>
 		{#if linkToDetail}
 			<a href={resolve('/posts/[postId]', { postId: String(post.id) })}>詳細を見る</a>

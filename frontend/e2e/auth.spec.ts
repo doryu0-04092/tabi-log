@@ -1,34 +1,16 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { signup as signupWith, unique } from './fixtures/app';
 
 /** ヘッダーのアカウント領域。同じ文字列が本文にも出るため領域で絞る。 */
 function nav(page: Page) {
 	return page.getByRole('navigation', { name: 'アカウント' });
 }
 
-/** テストごとに衝突しない識別子を作る。 */
-function unique() {
-	const n = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
-	return {
-		email: `e2e${n}@example.test`,
-		handle: `e2e_${n}`.slice(0, 30),
-		password: 'password12345'
-	};
-}
-
-async function signup(page: Page, user: ReturnType<typeof unique>, displayName = 'たびびと') {
-	await page.goto('/signup');
-	await page.getByLabel('メールアドレス').fill(user.email);
-	await page.getByLabel('ハンドル').fill(user.handle);
-	await page.getByLabel('表示名').fill(displayName);
-	await page.getByLabel('パスワード').fill(user.password);
-	await page.getByRole('button', { name: '登録する' }).click();
-}
-
 test.describe('認証', () => {
 	test('登録するとログイン状態になる', async ({ page }) => {
 		const user = unique();
-		await signup(page, user, 'たびびと太郎');
+		await signupWith(page, { user, displayName: 'たびびと太郎' });
 
 		await expect(page).toHaveURL('/');
 		await expect(nav(page).getByText('たびびと太郎')).toBeVisible();
@@ -39,7 +21,7 @@ test.describe('認証', () => {
 	// Cookie のリフレッシュトークンから復元できること。
 	test('リロードしてもログイン状態が保たれる', async ({ page }) => {
 		const user = unique();
-		await signup(page, user, 'リロード確認');
+		await signupWith(page, { user, displayName: 'リロード確認' });
 		await expect(nav(page).getByText('リロード確認')).toBeVisible();
 
 		await page.reload();
@@ -52,7 +34,7 @@ test.describe('認証', () => {
 	// 保存すると、XSS が1つでもあれば持ち出される。
 	test('アクセストークンを localStorage に保存しない', async ({ page }) => {
 		const user = unique();
-		await signup(page, user);
+		await signupWith(page, { user });
 		await expect(page.getByRole('button', { name: 'ログアウト' })).toBeVisible();
 
 		const stored = await page.evaluate(() => JSON.stringify(window.localStorage));
@@ -62,7 +44,7 @@ test.describe('認証', () => {
 	// リフレッシュトークンは HttpOnly のため JavaScript から読めないこと。
 	test('リフレッシュトークンを JavaScript から読めない', async ({ page, context }) => {
 		const user = unique();
-		await signup(page, user);
+		await signupWith(page, { user });
 		await expect(page.getByRole('button', { name: 'ログアウト' })).toBeVisible();
 
 		const cookies = await context.cookies();
@@ -79,7 +61,7 @@ test.describe('認証', () => {
 
 	test('ログアウトすると未ログインに戻る', async ({ page }) => {
 		const user = unique();
-		await signup(page, user);
+		await signupWith(page, { user });
 		await expect(page.getByRole('button', { name: 'ログアウト' })).toBeVisible();
 
 		await page.getByRole('button', { name: 'ログアウト' }).click();
@@ -92,7 +74,7 @@ test.describe('認証', () => {
 
 	test('登録したアカウントでログインできる', async ({ page }) => {
 		const user = unique();
-		await signup(page, user, 'ログイン確認');
+		await signupWith(page, { user, displayName: 'ログイン確認' });
 		await page.getByRole('button', { name: 'ログアウト' }).click();
 		await expect(page).toHaveURL('/login');
 
@@ -106,7 +88,7 @@ test.describe('認証', () => {
 
 	test('誤ったパスワードではログインできず、理由を明かさない', async ({ page }) => {
 		const user = unique();
-		await signup(page, user);
+		await signupWith(page, { user });
 		await page.getByRole('button', { name: 'ログアウト' }).click();
 
 		await page.getByLabel('メールアドレス').fill(user.email);
@@ -122,7 +104,7 @@ test.describe('認証', () => {
 
 	test('同じメールアドレスでは登録できない', async ({ page }) => {
 		const user = unique();
-		await signup(page, user);
+		await signupWith(page, { user });
 		await page.getByRole('button', { name: 'ログアウト' }).click();
 
 		// 同じアドレス、別のハンドルで登録を試みる。
