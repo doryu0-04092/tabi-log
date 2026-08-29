@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import LoadMore from '$lib/components/LoadMore.svelte';
 	import { page } from '$app/state';
 	import { listPrefectures, searchPosts, type Post, type Prefecture } from '$lib/api/posts';
 	import { session } from '$lib/auth/session.svelte';
@@ -96,11 +97,12 @@
 			{/each}
 		</ul>
 
-		{#if view.nextCursor}
-			<button type="button" onclick={loadMore} disabled={loadingMore}>
-				{loadingMore ? '読み込んでいます…' : 'さらに読み込む'}
-			</button>
-		{/if}
+		<LoadMore
+			hasMore={Boolean(view.nextCursor)}
+			loading={loadingMore}
+			onLoadMore={loadMore}
+			label="さらに読み込む"
+		/>
 	{/if}
 
 	<BackLink href={resolve('/')} />
@@ -131,24 +133,6 @@
 		list-style: none;
 		margin: 0;
 		padding: 0;
-	}
-
-	button {
-		display: block;
-		width: 100%;
-		min-height: 2.75rem;
-		margin-top: var(--space-6);
-		padding: var(--space-3);
-		font: inherit;
-		color: var(--color-text);
-		background: var(--color-surface);
-		border: var(--line);
-		border-radius: var(--radius);
-		cursor: pointer;
-	}
-
-	button:disabled {
-		cursor: progress;
 	}
 
 	.error {

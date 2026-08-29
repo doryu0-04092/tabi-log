@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import LoadMore from '$lib/components/LoadMore.svelte';
 	import {
 		listNotifications,
 		markAllNotificationsRead,
@@ -211,11 +212,12 @@
 			{/each}
 		</ul>
 
-		{#if view.nextCursor}
-			<button type="button" class="more" onclick={loadMore} disabled={loadingMore}>
-				{loadingMore ? '読み込んでいます…' : 'さらに読み込む'}
-			</button>
-		{/if}
+		<LoadMore
+			hasMore={Boolean(view.nextCursor)}
+			loading={loadingMore}
+			onLoadMore={loadMore}
+			label="さらに読み込む"
+		/>
 	{/if}
 
 	<BackLink label="ホーム" href={resolve('/')} />
@@ -321,13 +323,6 @@
 		color: var(--color-text-muted);
 		border-color: transparent;
 		text-decoration: underline;
-	}
-
-	.more {
-		display: block;
-		width: 100%;
-		margin-top: var(--space-6);
-		background: var(--color-surface);
 	}
 
 	.error {

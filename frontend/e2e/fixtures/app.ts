@@ -4,7 +4,7 @@
 // ここへ切り出した。各ファイルに写しを置くと、画面の文言を変えたときに
 // 直し忘れた側だけが落ちる。
 
-import { expect, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { PNG } from './png';
 
 export type TestUser = { email: string; handle: string; password: string };
@@ -110,4 +110,127 @@ export async function toggleLike(page: Page, want: boolean): Promise<void> {
 	await button.click();
 	await accepted;
 	await expect(button).toHaveAttribute('aria-pressed', String(want));
+}
+
+/*
+ * ------------------------------------------------------------------
+ * ここから下は API を直接叩く補助。
+ *
+ * **画面を経由せずに用意するのは「量が要る前提」を作るときだけ**にする。
+ * 画面から作れるものを API で作ると、画面が壊れていても気づけない。
+ * 無限スクロールのように 1 ページ（20件）を超える件数が要る場合、
+ * 画面から 21 件作ると1テストで数分かかり、検証したい対象と関係のない
+ * 待ち時間で不安定になる。
+ *
+ * **Cookie はブラウザのものを共有している**（`api` を使うため）。
+ * API で登録すればリフレッシュ用の Cookie がブラウザに載り、
+ * そのまま `page.goto('/')` でログイン済みとして開ける。
+ * ------------------------------------------------------------------
+ */
+
+/** API で登録し、アクセストークンを得る。画面は開かない。 */
+export async function signupViaApi(
+	api: APIRequestContext,
+	opts: { user?: TestUser; displayName?: string } = {}
+): Promise<{ user: TestUser; token: string }> {
+	const user = opts.user ?? unique();
+	const response = await api.post('/api/auth/signup', {
+		data: {
+			email: user.email,
+			handle: user.handle,
+			displayName: opts.displayName ?? 'たびびと',
+			password: user.password
+		}
+	});
+	expect(response.status(), await response.text()).toBe(201);
+	const body = await response.json();
+	return { user, token: body.data.accessToken };
+}
+
+/**
+ * 画像を1枚アップロードし、使える状態になった mediaId を返す。
+ *
+ * 画面側の `uploadImage` と同じ3段階（presign → S3 へ PUT → 完了待ち）を辿る。
+ * **完了待ちを省けない**のは、処理が S3 のイベントで非同期に走るためである。
+ */
+async function uploadViaApi(api: APIRequestContext, token: string): Promise<number> {
+	const auth = { Authorization: `Bearer ${token}` };
+
+	const presigned = await api.post('/api/media/presign', {
+		headers: auth,
+		data: { contentType: 'image/png', contentLength: PNG.length }
+	});
+	expect(presigned.status(), await presigned.text()).toBe(201);
+	const { mediaId, uploadUrl } = (await presigned.json()).data;
+
+	const put = await api.put(uploadUrl, {
+		headers: { 'Content-Type': 'image/png' },
+		data: PNG
+	});
+	expect(put.ok(), `S3 への PUT が失敗した: ${put.status()}`).toBeTruthy();
+
+	// 完了するまで問い合わせる。上限を切って、無限に待たない。
+	for (let i = 0; i < 40; i++) {
+		await new Promise((r) => setTimeout(r, 250));
+		const state = await api.get(`/api/media/${mediaId}`, { headers: auth });
+		const status = (await state.json()).data.status;
+		if (status === 'processed') return mediaId;
+		if (status === 'failed') throw new Error(`media ${mediaId} の処理が失敗した`);
+	}
+	throw new Error(`media ${mediaId} の処理が終わらなかった`);
+}
+
+/** API で投稿を1件作り、投稿 ID を返す。 */
+export async function createPostViaApi(
+	api: APIRequestContext,
+	token: string,
+	opts: { body: string; prefectureCode?: string }
+): Promise<number> {
+	const mediaId = await uploadViaApi(api, token);
+	const response = await api.post('/api/posts', {
+		headers: { Authorization: `Bearer ${token}` },
+		data: {
+			body: opts.body,
+			prefectureCode: opts.prefectureCode ?? '01',
+			visitedOn: null,
+			tags: [],
+			media: [{ mediaId }]
+		}
+	});
+	expect(response.status(), await response.text()).toBe(201);
+	return (await response.json()).data.id;
+}
+
+/**
+ * API で投稿をまとめて作る。
+ *
+ * **並列にしすぎない。** 画像処理が同時に走る数を絞らないと、
+ * 実行環境によっては処理待ちが上限を超える。
+ */
+export async function createPostsViaApi(
+	api: APIRequestContext,
+	token: string,
+	count: number,
+	label: string
+): Promise<void> {
+	const CONCURRENCY = 4;
+	for (let start = 0; start < count; start += CONCURRENCY) {
+		const batch = [];
+		for (let i = start; i < Math.min(start + CONCURRENCY, count); i++) {
+			batch.push(createPostViaApi(api, token, { body: `${label} ${i + 1}` }));
+		}
+		await Promise.all(batch);
+	}
+}
+
+/** API でフォローする。フォロー中フィードを他テストの投稿から隔離するために使う。 */
+export async function followViaApi(
+	api: APIRequestContext,
+	token: string,
+	handle: string
+): Promise<void> {
+	const response = await api.put(`/api/users/${handle}/follow`, {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	expect(response.status(), await response.text()).toBe(204);
 }

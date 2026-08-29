@@ -3,6 +3,8 @@
 	import { page } from '$app/state';
 	import { listFollowingFeed, listPosts, type Post } from '$lib/api/posts';
 	import { session } from '$lib/auth/session.svelte';
+	import LoadMore from '$lib/components/LoadMore.svelte';
+	import NewPostsNotice from '$lib/components/NewPostsNotice.svelte';
 	import PostCard from '$lib/components/PostCard.svelte';
 
 	type State =
@@ -32,6 +34,26 @@
 			void load(tab);
 		}
 	});
+
+	/** 今見えている中でいちばん新しい投稿の ID。新着の有無を数える基準になる。 */
+	let newestId = $derived(view.kind === 'ready' ? view.posts[0]?.id : undefined);
+
+	/** ポーリングで叩く先。開いているタブに合わせる。 */
+	function fetchLatest() {
+		return tab === 'following' ? listFollowingFeed() : listPosts();
+	}
+
+	/**
+	 * 新着を取り込む。
+	 *
+	 * **差分だけを継ぎ足すのではなく取り直す。** 取り込むまでの間に
+	 * 削除された投稿や、いいね数の変化も一緒に反映されるべきであり、
+	 * 差分だけを足すと古い状態が画面に残る。
+	 */
+	async function applyNewPosts() {
+		await load(tab);
+		window.scrollTo({ top: 0, behavior: 'smooth' });
+	}
 
 	async function load(which: Tab) {
 		view = { kind: 'loading' };
@@ -95,6 +117,10 @@
 		<a href={resolve('/')} aria-current={tab === 'latest' ? 'page' : undefined}>新着</a>
 	</nav>
 
+	{#if view.kind === 'ready' && view.posts.length > 0}
+		<NewPostsNotice {newestId} {fetchLatest} onApply={applyNewPosts} />
+	{/if}
+
 	{#if view.kind === 'loading'}
 		<p>読み込んでいます…</p>
 	{:else if view.kind === 'error'}
@@ -123,15 +149,12 @@
 			{/each}
 		</ul>
 
-		{#if view.nextCursor}
-			<!--
-				無限スクロールにはしない。キーボードと読み上げソフトでは
-				「いつ終わるか分からない」ものになり、末尾へ到達できなくなる。
-			-->
-			<button type="button" onclick={loadMore} disabled={loadingMore}>
-				{loadingMore ? '読み込んでいます…' : 'さらに読み込む'}
-			</button>
-		{/if}
+		<LoadMore
+			hasMore={view.nextCursor !== null}
+			loading={loadingMore}
+			onLoadMore={loadMore}
+			label="古い投稿をさらに読み込む"
+		/>
 	{/if}
 {/if}
 
@@ -199,23 +222,5 @@
 
 	.error {
 		color: var(--color-danger);
-	}
-
-	button {
-		display: block;
-		width: 100%;
-		min-height: 2.75rem;
-		margin-top: var(--space-6);
-		padding: var(--space-3);
-		font: inherit;
-		color: var(--color-text);
-		background: var(--color-surface);
-		border: var(--line);
-		border-radius: var(--radius);
-		cursor: pointer;
-	}
-
-	button:disabled {
-		cursor: progress;
 	}
 </style>
