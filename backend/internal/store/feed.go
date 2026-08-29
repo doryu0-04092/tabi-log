@@ -123,8 +123,74 @@ func (s *PostStore) buildPage(
 	if hasMore {
 		rows = rows[:limit]
 	}
+
+	posts, err = s.assemble(ctx, rows, signer, urlTTL)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if hasMore && len(rows) > 0 {
+		nextCursor = rows[len(rows)-1].ID
+	}
+	return posts, nextCursor, nil
+}
+
+// ListPostsByIDs は指定した ID の投稿を、**渡された並びのまま**返す。
+//
+// 検索は「どの投稿がどの順で並ぶか」だけを決め、本体の組み立ては
+// フィードと同じ手順を通す。並べ直しをここでやるのは、
+// IN 句の結果がデータベース側の都合の順で返るためである。
+func (s *PostStore) ListPostsByIDs(
+	ctx context.Context,
+	ids []uint64,
+	signer storage.URLSigner,
+	urlTTL time.Duration,
+) ([]domain.Post, error) {
+	if len(ids) == 0 {
+		return []domain.Post{}, nil
+	}
+
+	rows, err := s.q.ListPostsByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("投稿の取得に失敗した: %w", err)
+	}
+
+	converted := make([]dbgen.ListPostsBeforeRow, 0, len(rows))
+	for _, r := range rows {
+		converted = append(converted, dbgen.ListPostsBeforeRow(r))
+	}
+	posts, err := s.assemble(ctx, converted, signer, urlTTL)
+	if err != nil {
+		return nil, err
+	}
+
+	byID := make(map[uint64]domain.Post, len(posts))
+	for _, p := range posts {
+		byID[p.ID] = p
+	}
+	ordered := make([]domain.Post, 0, len(ids))
+	for _, id := range ids {
+		// 検索した直後に消された投稿は落ちる。
+		// 見つからないものを飛ばすだけでよく、失敗にはしない。
+		if p, ok := byID[id]; ok {
+			ordered = append(ordered, p)
+		}
+	}
+	return ordered, nil
+}
+
+// assemble は取得した行を投稿に組み立てる。
+//
+// 画像・変換物・タグは**それぞれ1クエリでまとめて取る。**
+// 投稿ごとに引くと20件で20往復になる（N+1）。
+func (s *PostStore) assemble(
+	ctx context.Context,
+	rows []dbgen.ListPostsBeforeRow,
+	signer storage.URLSigner,
+	urlTTL time.Duration,
+) ([]domain.Post, error) {
 	if len(rows) == 0 {
-		return []domain.Post{}, 0, nil
+		return []domain.Post{}, nil
 	}
 
 	postIDs := make([]uint64, 0, len(rows))
@@ -132,18 +198,16 @@ func (s *PostStore) buildPage(
 		postIDs = append(postIDs, r.ID)
 	}
 
-	// **画像・変換物・タグをそれぞれ1クエリでまとめて取る。**
-	// 投稿ごとに引くと20件で20往復になる（N+1）。
 	mediaByPost, err := s.mediaByPost(ctx, postIDs, signer, urlTTL)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	tagsByPost, err := s.tagsByPost(ctx, postIDs)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	posts = make([]domain.Post, 0, len(rows))
+	posts := make([]domain.Post, 0, len(rows))
 	for _, r := range rows {
 		posts = append(posts, domain.Post{
 			ID: r.ID,
@@ -170,11 +234,7 @@ func (s *PostStore) buildPage(
 			UpdatedAt:    r.UpdatedAt,
 		})
 	}
-
-	if hasMore {
-		nextCursor = rows[len(rows)-1].ID
-	}
-	return posts, nextCursor, nil
+	return posts, nil
 }
 
 // mediaByPost は複数の投稿の画像を投稿IDごとにまとめて返す。

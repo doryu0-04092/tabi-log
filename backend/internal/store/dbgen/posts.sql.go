@@ -8,6 +8,7 @@ package dbgen
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 )
 
@@ -266,6 +267,91 @@ func (q *Queries) ListPostsBefore(ctx context.Context, arg ListPostsBeforeParams
 	items := []ListPostsBeforeRow{}
 	for rows.Next() {
 		var i ListPostsBeforeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Body,
+			&i.PrefectureCode,
+			&i.SpotName,
+			&i.VisitedOn,
+			&i.LikeCount,
+			&i.CommentCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Handle,
+			&i.DisplayName,
+			&i.Bio,
+			&i.PrefectureName,
+			&i.PrefectureNameKana,
+			&i.Region,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPostsByIDs = `-- name: ListPostsByIDs :many
+SELECT
+    p.id, p.user_id, p.body, p.prefecture_code, p.spot_name, p.visited_on,
+    p.like_count, p.comment_count, p.created_at, p.updated_at,
+    u.handle, u.display_name, u.bio,
+    pref.name AS prefecture_name, pref.name_kana AS prefecture_name_kana, pref.region
+FROM posts p
+JOIN users u ON u.id = p.user_id
+JOIN prefectures pref ON pref.code = p.prefecture_code
+WHERE p.id IN (/*SLICE:ids*/?)
+`
+
+type ListPostsByIDsRow struct {
+	ID                 uint64
+	UserID             uint64
+	Body               string
+	PrefectureCode     string
+	SpotName           sql.NullString
+	VisitedOn          time.Time
+	LikeCount          uint32
+	CommentCount       uint32
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	Handle             string
+	DisplayName        string
+	Bio                sql.NullString
+	PrefectureName     string
+	PrefectureNameKana string
+	Region             string
+}
+
+// ID を指定してまとめて取る。検索の結果を組み立てるために使う。
+//
+// **並び順はここでは決めない。** 検索側が決めた順序を保つため、
+// 呼び出し元が ID の並びどおりに並べ直す。
+func (q *Queries) ListPostsByIDs(ctx context.Context, ids []uint64) ([]ListPostsByIDsRow, error) {
+	query := listPostsByIDs
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPostsByIDsRow{}
+	for rows.Next() {
+		var i ListPostsByIDsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,

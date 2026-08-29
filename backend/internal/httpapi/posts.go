@@ -56,6 +56,7 @@ type PostRepository interface {
 	ListFeed(ctx context.Context, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
 	ListUserPosts(ctx context.Context, userID, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
 	ListFollowingFeed(ctx context.Context, viewerID, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
+	ListPostsByIDs(ctx context.Context, ids []uint64, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, error)
 }
 
 // ObjectStorage は画像の保存先。
@@ -541,9 +542,15 @@ const (
 )
 
 func (h *postHandler) ListPosts(w http.ResponseWriter, r *http.Request, params gen.ListPostsParams) {
-	writeFeedPage(w, r, h.likes, h.logger, params.Cursor, params.Limit,
-		func(ctx context.Context, cursorID uint64, limit int) ([]domain.Post, uint64, error) {
-			return h.repo.ListFeed(ctx, cursorID, limit, h.storage, displayURLTTL)
+	cursor, ok := parseCursor(w, r, params.Cursor)
+	if !ok {
+		return
+	}
+
+	writeFeedPage(w, r, h.likes, h.logger, params.Limit,
+		func(ctx context.Context, limit int) ([]domain.Post, string, error) {
+			posts, next, err := h.repo.ListFeed(ctx, cursor, limit, h.storage, displayURLTTL)
+			return posts, formatCursor(next), err
 		})
 }
 
@@ -558,9 +565,15 @@ func (h *postHandler) ListFollowingFeed(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	writeFeedPage(w, r, h.likes, h.logger, params.Cursor, params.Limit,
-		func(ctx context.Context, cursorID uint64, limit int) ([]domain.Post, uint64, error) {
-			return h.repo.ListFollowingFeed(ctx, viewerID, cursorID, limit, h.storage, displayURLTTL)
+	cursor, ok := parseCursor(w, r, params.Cursor)
+	if !ok {
+		return
+	}
+
+	writeFeedPage(w, r, h.likes, h.logger, params.Limit,
+		func(ctx context.Context, limit int) ([]domain.Post, string, error) {
+			posts, next, err := h.repo.ListFollowingFeed(ctx, viewerID, cursor, limit, h.storage, displayURLTTL)
+			return posts, formatCursor(next), err
 		})
 }
 

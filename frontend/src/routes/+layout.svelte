@@ -34,6 +34,13 @@
 <header>
 	<a class="brand" href={resolve('/')}>tabi-log</a>
 
+	{#if session.restored && session.isAuthenticated}
+		<nav aria-label="主要">
+			<a href={resolve('/')}>フィード</a>
+			<a href={resolve('/explore')}>発見</a>
+		</nav>
+	{/if}
+
 	<nav aria-label="アカウント">
 		<!--
 			復元が終わるまで何も出さない。ここで「ログイン」を先に描くと、

@@ -96,3 +96,18 @@ JOIN prefectures pref ON pref.code = p.prefecture_code
 WHERE p.id < ?
 ORDER BY p.id DESC
 LIMIT ?;
+
+-- ID を指定してまとめて取る。検索の結果を組み立てるために使う。
+--
+-- **並び順はここでは決めない。** 検索側が決めた順序を保つため、
+-- 呼び出し元が ID の並びどおりに並べ直す。
+-- name: ListPostsByIDs :many
+SELECT
+    p.id, p.user_id, p.body, p.prefecture_code, p.spot_name, p.visited_on,
+    p.like_count, p.comment_count, p.created_at, p.updated_at,
+    u.handle, u.display_name, u.bio,
+    pref.name AS prefecture_name, pref.name_kana AS prefecture_name_kana, pref.region
+FROM posts p
+JOIN users u ON u.id = p.user_id
+JOIN prefectures pref ON pref.code = p.prefecture_code
+WHERE p.id IN (sqlc.slice('ids'));

@@ -12,6 +12,7 @@ import (
 
 	"github.com/doryu0-04092/tabi-log/backend/internal/auth"
 	"github.com/doryu0-04092/tabi-log/backend/internal/domain"
+	"github.com/doryu0-04092/tabi-log/backend/internal/search"
 	"github.com/doryu0-04092/tabi-log/backend/internal/storage"
 	"github.com/doryu0-04092/tabi-log/backend/internal/store"
 
@@ -57,6 +58,7 @@ type testDeps struct {
 	posts       PostRepository
 	reactions   ReactionRepository
 	follows     FollowRepository
+	search      SearchRepository
 	tokens      *auth.JWTService
 }
 
@@ -81,6 +83,9 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 	if d.follows == nil {
 		d.follows = &stubFollowRepo{}
 	}
+	if d.search == nil {
+		d.search = &stubSearchRepo{}
+	}
 
 	deps := Deps{
 		DB:            stubPinger{err: d.pingErr},
@@ -89,6 +94,7 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 		Posts:         d.posts,
 		Reactions:     d.reactions,
 		Follows:       d.follows,
+		Search:        d.search,
 		TokenIssuer:   d.tokens,
 		TokenVerifier: d.tokens,
 		AuthOptions: AuthOptions{
@@ -224,6 +230,8 @@ type stubPostRepo struct {
 
 	// フォロー中フィードは閲覧者ごとに違う。誰の分を引いたかを記録する。
 	lastViewerID uint64
+	// 検索が決めた並びが保たれているかを見るために記録する。
+	lastIDs []uint64
 }
 
 func (s *stubPostRepo) CreatePendingMedia(context.Context, uint64, string) (uint64, error) {
@@ -254,6 +262,23 @@ func (s *stubPostRepo) ListUserPosts(context.Context, uint64, uint64, int, stora
 func (s *stubPostRepo) ListFollowingFeed(_ context.Context, viewerID, _ uint64, _ int, _ storage.URLSigner, _ time.Duration) ([]domain.Post, uint64, error) {
 	s.lastViewerID = viewerID
 	return s.posts, s.nextCursor, s.listErr
+}
+
+// 検索は ID の並びだけを決め、本体はここで組み立てられる。
+// 並びが保たれることを確かめられるよう、渡された順に返す。
+func (s *stubPostRepo) ListPostsByIDs(_ context.Context, ids []uint64, _ storage.URLSigner, _ time.Duration) ([]domain.Post, error) {
+	s.lastIDs = ids
+	byID := make(map[uint64]domain.Post, len(s.posts))
+	for _, p := range s.posts {
+		byID[p.ID] = p
+	}
+	out := make([]domain.Post, 0, len(ids))
+	for _, id := range ids {
+		if p, ok := byID[id]; ok {
+			out = append(out, p)
+		}
+	}
+	return out, s.listErr
 }
 
 // stubReactionRepo は呼び出しを記録し、返す値をテストごとに差し替えられる。
@@ -387,4 +412,35 @@ func (s *stubFollowRepo) FollowedUserIDs(context.Context, uint64, []uint64) (map
 		return map[uint64]bool{}, nil
 	}
 	return s.followed, nil
+}
+
+// stubSearchRepo は検索の入力を記録し、返す値を差し替えられる。
+type stubSearchRepo struct {
+	ids        []uint64
+	nextCursor search.Cursor
+	postsErr   error
+
+	users        []domain.User
+	usersCursor  uint64
+	usersErr     error
+	lastKeyword  string
+	lastFilters  search.Filters
+	lastCursor   search.Cursor
+	lastLimit    int
+	lastUserSeen string
+}
+
+func (s *stubSearchRepo) SearchPosts(_ context.Context, f search.Filters, cursor search.Cursor, limit int) ([]uint64, search.Cursor, error) {
+	s.lastFilters = f
+	s.lastCursor = cursor
+	s.lastLimit = limit
+	return s.ids, s.nextCursor, s.postsErr
+}
+
+func (s *stubSearchRepo) SearchUsers(_ context.Context, keyword string, cursorID uint64, limit int) ([]domain.User, uint64, error) {
+	s.lastKeyword = keyword
+	s.lastUserSeen = keyword
+	s.lastLimit = limit
+	_ = cursorID
+	return s.users, s.usersCursor, s.usersErr
 }
