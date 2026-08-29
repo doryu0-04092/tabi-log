@@ -112,6 +112,28 @@ func (s *FollowStore) Profile(ctx context.Context, handle string, viewerID uint6
 	}, nil
 }
 
+// PrefectureCounts は都道府県ごとの投稿数を47件すべて返す。
+//
+// **プロフィールと同じ入口から引けるようにしている。** 制覇マップは
+// プロフィールの一部であり、呼び出し側が2つの store を持たずに済む。
+func (s *FollowStore) PrefectureCounts(ctx context.Context, userID uint64) ([]domain.PrefectureCount, error) {
+	rows, err := s.q.ListPrefectureCountsByUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("都道府県ごとの投稿数を取得できない: %w", err)
+	}
+
+	out := make([]domain.PrefectureCount, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, domain.PrefectureCount{
+			Code:      r.Code,
+			Name:      r.Name,
+			Region:    r.Region,
+			PostCount: int(r.PostCount),
+		})
+	}
+	return out, nil
+}
+
 // ---------------------------------------------------------------------------
 // フォロー
 // ---------------------------------------------------------------------------

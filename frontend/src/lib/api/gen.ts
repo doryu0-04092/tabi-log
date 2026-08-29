@@ -346,6 +346,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/{handle}/prefectures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 都道府県ごとの投稿数
+         * @description 都道府県制覇マップのためのデータ。
+         *
+         *     **投稿が無い県も含めて47件すべてを返す。** マップは全県のマスを
+         *     描くため、返さないと画面側で都道府県マスタと突き合わせる処理が要る。
+         *     47件は固定であり、量として問題にならない。
+         *
+         *     並びは `sort_order`（JIS X 0401 の順）である。
+         */
+        get: operations["listUserPrefectures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/{handle}/posts": {
         parameters: {
             query?: never;
@@ -883,6 +912,18 @@ export interface components {
                 users: components["schemas"]["UserSummary"][];
                 /** @description 続きがある場合のみ入る */
                 nextCursor?: string | null;
+            };
+        };
+        PrefectureCount: {
+            /** @description JIS X 0401 の都道府県コード */
+            code: string;
+            name: string;
+            region: string;
+            postCount: number;
+        };
+        PrefectureCountListResponse: {
+            data: {
+                prefectures: components["schemas"]["PrefectureCount"][];
             };
         };
         Notification: {
@@ -1602,6 +1643,31 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listUserPrefectures: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 都道府県ごとの投稿数 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrefectureCountListResponse"];
+                };
             };
             401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];

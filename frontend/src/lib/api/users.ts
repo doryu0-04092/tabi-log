@@ -55,3 +55,17 @@ export function searchUsers(q: string, cursor?: string | null): Promise<UserPage
 	if (cursor) params.set('cursor', cursor);
 	return request<UserPage>(`/search/users?${params}`);
 }
+
+export type PrefectureCount = components['schemas']['PrefectureCount'];
+
+/**
+ * 都道府県ごとの投稿数を47件すべて取る。
+ *
+ * **投稿が無い県も含まれる。** 制覇マップは全県のマスを描くため、
+ * 画面側で都道府県マスタと突き合わせずに済ませている。
+ */
+export function listUserPrefectures(handle: string): Promise<{ prefectures: PrefectureCount[] }> {
+	return request<{ prefectures: PrefectureCount[] }>(
+		`/users/${encodeURIComponent(handle)}/prefectures`
+	);
+}

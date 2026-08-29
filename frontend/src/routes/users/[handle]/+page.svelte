@@ -6,10 +6,13 @@
 	import {
 		getUserProfile,
 		listUserPosts,
+		listUserPrefectures,
 		PREFECTURE_TOTAL,
+		type PrefectureCount,
 		type UserProfile
 	} from '$lib/api/users';
 	import { session } from '$lib/auth/session.svelte';
+	import ConquestMap from '$lib/components/ConquestMap.svelte';
 	import FollowButton from '$lib/components/FollowButton.svelte';
 	import PostCard from '$lib/components/PostCard.svelte';
 
@@ -22,6 +25,7 @@
 	let posts = $state<Post[]>([]);
 	let nextCursor = $state<string | null>(null);
 	let postsLoaded = $state(false);
+	let prefectures = $state<PrefectureCount[]>([]);
 	let loadingMore = $state(false);
 
 	// フォローの切り替えでフォロワー数が動く。ボタンだけ変わって数字が
@@ -42,6 +46,7 @@
 		posts = [];
 		nextCursor = null;
 		postsLoaded = false;
+		prefectures = [];
 		followerDelta = 0;
 
 		try {
@@ -56,6 +61,13 @@
 						: 'プロフィールを取得できませんでした'
 			};
 			return;
+		}
+
+		try {
+			prefectures = (await listUserPrefectures(h)).prefectures;
+		} catch {
+			// マップが出せなくてもプロフィールは出す。片方の失敗で
+			// 画面全体をエラーにすると、見られるはずの情報まで見られなくなる。
 		}
 
 		try {
@@ -172,6 +184,10 @@
 			<dd>{view.profile.visitedPrefectureCount} / {PREFECTURE_TOTAL}（{conquestRate}%）</dd>
 		</div>
 	</dl>
+
+	{#if prefectures.length > 0}
+		<ConquestMap {prefectures} />
+	{/if}
 
 	<h2>投稿</h2>
 

@@ -25,6 +25,8 @@ type FollowRepository interface {
 	Follow(ctx context.Context, followerID, followeeID uint64) error
 	Unfollow(ctx context.Context, followerID, followeeID uint64) error
 
+	PrefectureCounts(ctx context.Context, userID uint64) ([]domain.PrefectureCount, error)
+
 	ListFollowers(ctx context.Context, userID, cursorID uint64, limit int) ([]domain.User, uint64, error)
 	ListFollowing(ctx context.Context, userID, cursorID uint64, limit int) ([]domain.User, uint64, error)
 	FollowedUserIDs(ctx context.Context, viewerID uint64, userIDs []uint64) (map[uint64]bool, error)
@@ -101,6 +103,47 @@ func (h *userHandler) ListUserPosts(w http.ResponseWriter, r *http.Request, hand
 			posts, next, err := h.posts.ListUserPosts(ctx, user.ID, cursor, limit, h.storage, displayURLTTL)
 			return posts, formatCursor(next), err
 		})
+}
+
+// ListUserPrefectures は都道府県ごとの投稿数を47件すべて返す。
+//
+// **制覇マップのためのデータである。** 投稿が無い県も 0 件として含める。
+// 返さないと、画面側で都道府県マスタと突き合わせる処理が要る。
+func (h *userHandler) ListUserPrefectures(w http.ResponseWriter, r *http.Request, handle gen.Handle) {
+	if _, ok := UserIDFrom(r.Context()); !ok {
+		writeError(w, r, http.StatusUnauthorized, "unauthenticated", "ログインが必要です")
+		return
+	}
+
+	user, err := h.repo.FindUserByHandle(r.Context(), handle)
+	if errors.Is(err, store.ErrUserNotFoundByHandle) {
+		writeError(w, r, http.StatusNotFound, "not_found", "利用者が見つかりません")
+		return
+	}
+	if err != nil {
+		h.internalError(w, r, "利用者の取得に失敗した", err)
+		return
+	}
+
+	counts, err := h.repo.PrefectureCounts(r.Context(), user.ID)
+	if err != nil {
+		h.internalError(w, r, "都道府県ごとの投稿数を取得できない", err)
+		return
+	}
+
+	items := make([]gen.PrefectureCount, 0, len(counts))
+	for _, c := range counts {
+		items = append(items, gen.PrefectureCount{
+			Code:      c.Code,
+			Name:      c.Name,
+			Region:    c.Region,
+			PostCount: c.PostCount,
+		})
+	}
+
+	var body gen.PrefectureCountListResponse
+	body.Data.Prefectures = items
+	writeJSON(w, r, http.StatusOK, body.Data)
 }
 
 // ---------------------------------------------------------------------------

@@ -367,6 +367,9 @@ type stubFollowRepo struct {
 	listErr    error
 	followed   map[uint64]bool
 
+	prefectures    []domain.PrefectureCount
+	prefecturesErr error
+
 	lastCursor uint64
 	lastLimit  int
 }
@@ -410,6 +413,10 @@ func (s *stubFollowRepo) ListFollowers(_ context.Context, _, cursorID uint64, li
 func (s *stubFollowRepo) ListFollowing(_ context.Context, _, cursorID uint64, limit int) ([]domain.User, uint64, error) {
 	s.lastCursor, s.lastLimit = cursorID, limit
 	return s.list, s.nextCursor, s.listErr
+}
+
+func (s *stubFollowRepo) PrefectureCounts(context.Context, uint64) ([]domain.PrefectureCount, error) {
+	return s.prefectures, s.prefecturesErr
 }
 
 func (s *stubFollowRepo) FollowedUserIDs(context.Context, uint64, []uint64) (map[uint64]bool, error) {

@@ -350,3 +350,71 @@ func TestListUserPostsUnknownHandleReturns404(t *testing.T) {
 		t.Fatalf("%d が返った。404 を期待した", rec.Code)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 都道府県ごとの投稿数（制覇マップ）
+// ---------------------------------------------------------------------------
+
+// **投稿が無い県も返す。** 返さないと、画面側で都道府県マスタと
+// 突き合わせる処理が要る。
+func TestListUserPrefecturesIncludesZeroCounts(t *testing.T) {
+	repo := &stubFollowRepo{
+		users: testUsers(),
+		prefectures: []domain.PrefectureCount{
+			{Code: "01", Name: "北海道", Region: "北海道", PostCount: 2},
+			{Code: "13", Name: "東京都", Region: "関東", PostCount: 0},
+		},
+	}
+	tokens := testTokens(t)
+	h := newRouter(t, testDeps{follows: repo, tokens: tokens})
+
+	rec := doJSON(h, withBearer(req(http.MethodGet, "/api/users/traveler/prefectures", ""), mustIssue(t, tokens, 7)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d が返った。200 を期待した。body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		Data struct {
+			Prefectures []struct {
+				Code      string `json:"code"`
+				Name      string `json:"name"`
+				Region    string `json:"region"`
+				PostCount int    `json:"postCount"`
+			} `json:"prefectures"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を解釈できない: %v body=%s", err, rec.Body.String())
+	}
+	if len(got.Data.Prefectures) != 2 {
+		t.Fatalf("都道府県が %d 件。2件を期待した", len(got.Data.Prefectures))
+	}
+	if got.Data.Prefectures[0].PostCount != 2 || got.Data.Prefectures[0].Name != "北海道" {
+		t.Fatalf("件数と名前が正しくない: %+v", got.Data.Prefectures[0])
+	}
+	// 0件の県が落ちていないこと。
+	if got.Data.Prefectures[1].PostCount != 0 || got.Data.Prefectures[1].Code != "13" {
+		t.Fatalf("0件の県が返っていない: %+v", got.Data.Prefectures[1])
+	}
+}
+
+func TestListUserPrefecturesUnknownHandleReturns404(t *testing.T) {
+	repo := &stubFollowRepo{users: testUsers()}
+	tokens := testTokens(t)
+	h := newRouter(t, testDeps{follows: repo, tokens: tokens})
+
+	rec := doJSON(h, withBearer(req(http.MethodGet, "/api/users/nobody/prefectures", ""), mustIssue(t, tokens, 7)))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("%d が返った。404 を期待した", rec.Code)
+	}
+}
+
+func TestListUserPrefecturesRequiresAuthentication(t *testing.T) {
+	repo := &stubFollowRepo{users: testUsers()}
+	h := newRouter(t, testDeps{follows: repo})
+
+	rec := doJSON(h, req(http.MethodGet, "/api/users/traveler/prefectures", ""))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("%d が返った。401 を期待した", rec.Code)
+	}
+}
