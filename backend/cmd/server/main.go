@@ -78,7 +78,7 @@ func run() error {
 		Posts:         store.NewPostStore(db),
 		Reactions:     store.NewReactionStore(db),
 		Follows:       store.NewFollowStore(db),
-		Search:        search.NewMySQLSearcher(db),
+		Search:        search.NewMySQLSearcher(db).WithLogger(logger),
 		Notifications: store.NewNotificationStore(db),
 		Account:       store.NewAccountStore(db),
 		Storage:       objectStorage,
@@ -94,6 +94,9 @@ func run() error {
 			TrustProxyHeaders: cfg.Auth.TrustProxyHeaders,
 		},
 		LoginAttemptLimit:  cfg.Auth.LoginAttemptLimit,
+		PostCreateLimit:    cfg.Auth.PostCreateLimit,
+		CommentCreateLimit: cfg.Auth.CommentCreateLimit,
+		WriteLimitWindow:   cfg.Auth.WriteLimitWindow,
 		LoginAttemptWindow: cfg.Auth.LoginAttemptWindow,
 		Logger:             logger,
 	})

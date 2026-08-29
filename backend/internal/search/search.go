@@ -14,6 +14,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -74,10 +75,22 @@ type Searcher interface {
 // MySQLSearcher は MySQL の InnoDB FULLTEXT（ngram）を使う実装。
 type MySQLSearcher struct {
 	db *sql.DB
+	// logger は組み立てた条件を残す先。nil でもよい。
+	logger *slog.Logger
 }
 
 func NewMySQLSearcher(db *sql.DB) *MySQLSearcher {
 	return &MySQLSearcher{db: db}
+}
+
+// WithLogger は記録先を差し込む。
+//
+// **記録するのは「どう組み立てたか」と「何件返したか」であって、
+// 利用者が入れた語そのものではない。** 検索語は利用者が何を探したかを
+// そのまま表すため、ログに残す情報ではない。
+func (s *MySQLSearcher) WithLogger(logger *slog.Logger) *MySQLSearcher {
+	s.logger = logger
+	return s
 }
 
 // SearchPosts は条件に合う投稿の ID を並び順どおりに返す。
@@ -123,6 +136,21 @@ func (s *MySQLSearcher) SearchPosts(ctx context.Context, f Filters, cursor Curso
 	)
 	// 1件多く取って「続きがあるか」を判定する。
 	args = append(args, limit+1)
+
+	// **0件だったときに、条件の組み立てを疑えるようにする。**
+	// 実際に「複数の語で検索すると必ず0件」という不具合を出しており、
+	// そのときは「検索できない」という報告からは何も分からなかった。
+	// 語そのものは残さず、語数と条件の数だけを残す。
+	if s.logger != nil {
+		s.logger.DebugContext(ctx, "投稿を検索する",
+			slog.Int("keyword_terms", len(strings.Fields(f.Keyword))),
+			slog.Int("conditions", len(conds)),
+			slog.String("sort", string(f.Sort)),
+			slog.Bool("has_prefecture", f.PrefectureCode != ""),
+			slog.Bool("has_tag", f.Tag != ""),
+			slog.Bool("has_handle", f.Handle != ""),
+		)
+	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {

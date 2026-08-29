@@ -19,7 +19,8 @@
 | [AWS構成設計](docs/aws-architecture.md) | インフラ構成と設計判断 |
 | [画面設計](docs/screens.md) | 画面一覧と遷移 |
 | [テスト計画](docs/test-plan.md) | テストの範囲と方針 |
-| [運用設計](docs/operations.md) | ログ・監視・障害対応 |
+| [運用設計](docs/operations.md) | ログ・監視・アラート・障害対応・ポストモーテム |
+| [負荷試験](perf/README.md) | k6 のシナリオと実行方法。**毎回は回さないテスト** |
 
 ## 構成
 
@@ -162,6 +163,9 @@ CI が再生成して**未追跡ファイルを含めて**差分の有無を検�
 
 ### テスト
 
+**テストは「毎回実行するもの」と「変えたときに測り直すもの」に分けています。**
+単体・E2E は変更のたびに CI で回し、負荷試験は構成やデータ量を変えたときだけ回します。
+
 ```bash
 # バックエンド
 cd backend
@@ -175,7 +179,51 @@ npm run check     # 型検査 + Svelte の a11y 警告（警告もエラー扱�
 npm run lint
 npm test          # 単体（Vitest）
 npm run test:e2e  # E2E + axe-core によるアクセシビリティ検査（Playwright）
+                  # 画面の表示性能（FCP/LCP/CLS）もここで測ります
 ```
+
+#### データベースを使うテスト
+
+**store と search に書いてあるのは Go のロジックではなく SQL です。**
+偽の実装を相手にすると「Go の呼び出しが通ること」しか確認できないため、
+実際の MySQL に対して流します。索引で ORDER BY まで解決できているか
+（EXPLAIN に `Using filesort` が出ないか）もここで見ます。
+
+```bash
+# 開発用とは別のデータベースを用意する（テストは毎回すべての表を空にします）
+docker compose exec -T mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "
+  CREATE DATABASE IF NOT EXISTS tabilog_test
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+  GRANT ALL ON tabilog_test.* TO \"tabilog\"@\"%\"; FLUSH PRIVILEGES;"'
+DB_NAME=tabilog_test docker compose run --rm migrate up
+
+cd backend
+TEST_DB_DSN='tabilog:change_me_local_only@tcp(127.0.0.1:3306)/tabilog_test?parseTime=true&loc=UTC&multiStatements=true'   go test -count=1 -p 1 ./internal/store/... ./internal/search/...
+```
+
+`-p 1` が要るのは、**どちらのパッケージも同じデータベースを空にしてから使う**ためです。
+既定では別パッケージが並列に走り、互いのデータを消し合います。
+
+#### 負荷試験
+
+```bash
+node perf/run.mjs smoke   # 通ることの確認（1分未満）
+node perf/run.mjs load    # 想定ピーク 50 req/s（約4分）
+```
+
+種データの投入から後片付けまで `run.mjs` が行います。詳しくは [perf/README.md](perf/README.md)。
+
+### API 仕様を読む
+
+バックエンドを起動していれば、ブラウザで開けます。
+
+```
+http://localhost:8080/api/docs          # Swagger UI
+http://localhost:8080/api/openapi.yaml  # 仕様そのもの（YAML）
+```
+
+配っているのは `docs/openapi.yaml` の写しです。**`go generate` が置き直し、
+CI が差分の有無を検証する**ため、古い写しが残ることはありません。
 
 ### ヘルスチェック
 

@@ -964,6 +964,9 @@ type ServerInterface interface {
 	// DeleteComment コメントを削除する
 	// (DELETE /comments/{commentId})
 	DeleteComment(w http.ResponseWriter, r *http.Request, commentId int64)
+	// GetDocs API 仕様を読む画面
+	// (GET /docs)
+	GetDocs(w http.ResponseWriter, r *http.Request)
 	// ListFollowingFeed フォロー中フィード
 	// (GET /feed/following)
 	ListFollowingFeed(w http.ResponseWriter, r *http.Request, params ListFollowingFeedParams)
@@ -988,6 +991,9 @@ type ServerInterface interface {
 	// MarkNotificationRead 1件を既読にする
 	// (PUT /notifications/{notificationId}/read)
 	MarkNotificationRead(w http.ResponseWriter, r *http.Request, notificationId int64)
+	// GetOpenAPISpec API 仕様（YAML）
+	// (GET /openapi.yaml)
+	GetOpenAPISpec(w http.ResponseWriter, r *http.Request)
 	// ListPosts 新着フィード
 	// (GET /posts)
 	ListPosts(w http.ResponseWriter, r *http.Request, params ListPostsParams)
@@ -1235,6 +1241,20 @@ func (siw *ServerInterfaceWrapper) DeleteComment(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// GetDocs operation middleware
+func (siw *ServerInterfaceWrapper) GetDocs(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDocs(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListFollowingFeed operation middleware
 func (siw *ServerInterfaceWrapper) ListFollowingFeed(w http.ResponseWriter, r *http.Request) {
 
@@ -1426,6 +1446,20 @@ func (siw *ServerInterfaceWrapper) MarkNotificationRead(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MarkNotificationRead(w, r, notificationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOpenAPISpec operation middleware
+func (siw *ServerInterfaceWrapper) GetOpenAPISpec(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOpenAPISpec(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2570,6 +2604,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/notifications/read", wrapper.MarkAllNotificationsRead)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/notifications/{notificationId}/read", wrapper.MarkNotificationRead)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/prefectures", wrapper.ListPrefectures)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/docs", wrapper.GetDocs)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/openapi.yaml", wrapper.GetOpenAPISpec)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/livez", wrapper.GetLivez)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/readyz", wrapper.GetReadyz)
 

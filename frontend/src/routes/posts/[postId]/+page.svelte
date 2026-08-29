@@ -94,6 +94,11 @@
 					やめる
 				</button>
 			{:else}
+				<!-- **編集を先に置く。** 削除より使う頻度が高く、
+				     並びが逆だと消す方に手が伸びる。 -->
+				<a class="edit" href={resolve('/posts/[postId]/edit', { postId: String(view.post.id) })}>
+					この投稿を編集する
+				</a>
 				<button type="button" onclick={() => (confirming = true)}>この投稿を削除する</button>
 			{/if}
 		</div>
@@ -121,6 +126,20 @@
 		margin-top: var(--space-6);
 		padding-top: var(--space-4);
 		border-top: var(--line);
+	}
+
+	/* リンクだが、隣の削除ボタンと同じ大きさに見せる。 */
+	.edit {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem;
+		padding: 0 var(--space-4);
+		color: var(--color-text);
+		background: var(--color-surface);
+		border: var(--line);
+		border-radius: var(--radius);
+		text-decoration: none;
+		font-weight: 600;
 	}
 
 	.owner-actions p {

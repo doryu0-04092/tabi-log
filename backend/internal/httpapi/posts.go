@@ -76,6 +76,8 @@ type postHandler struct {
 	avatars *avatarResolver
 	logger  *slog.Logger
 	now     func() time.Time
+	// createLimit は投稿の作成にかける上限。nil なら数えない。
+	createLimit *writeLimiter
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +157,11 @@ func (h *postHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	userID, ok := UserIDFrom(r.Context())
 	if !ok {
 		writeError(w, r, http.StatusUnauthorized, "unauthenticated", "ログインが必要です")
+		return
+	}
+
+	// **本文を読む前に数える。** 上限を超えている相手の本文を読む必要は無い。
+	if !h.createLimit.allow(w, r, userID) {
 		return
 	}
 
