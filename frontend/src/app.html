@@ -4,6 +4,16 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<!--
+			**SPA なので、ここに書いた説明が全ページ共通になる。**
+			ページごとに変えるには SSR が要る（adapter-static + SPA では
+			クローラに個別の説明を出せない）。この割り切りは
+			docs/tech-stack.md に書いてある OGP の話と同じ理由である。
+		-->
+		<meta
+			name="description"
+			content="旅行先の写真と記録を共有する SNS です。都道府県ごとに投稿を残し、訪れた場所を地図で振り返れます。"
+		/>
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 		<!--
