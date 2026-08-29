@@ -17,3 +17,34 @@ WHERE user_id = ? AND actor_id = ? AND type = 'like' AND post_id = ?;
 -- name: DeleteFollowNotification :exec
 DELETE FROM notifications
 WHERE user_id = ? AND actor_id = ? AND type = 'follow';
+
+-- 通知の一覧。新しい順。カーソルは id のみ（フィードと同じ考え方）。
+-- name: ListNotificationsBefore :many
+SELECT
+    n.id, n.type, n.post_id, n.comment_id, n.read_at, n.created_at,
+    u.id AS actor_id, u.handle, u.display_name, u.bio,
+    c.body AS comment_body
+FROM notifications n
+JOIN users u ON u.id = n.actor_id
+LEFT JOIN comments c ON c.id = n.comment_id
+WHERE n.user_id = ? AND n.id < ?
+ORDER BY n.id DESC
+LIMIT ?;
+
+-- 未読の件数。見出しの数のためだけに引く軽い問い合わせ。
+-- 索引 ix_notifications_user_read (user_id, read_at) が効く。
+-- name: CountUnreadNotifications :one
+SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read_at IS NULL;
+
+-- **user_id を条件に入れているのは権限の担保である。**
+-- 他人あての通知を id だけで既読にできてはいけない。
+-- name: MarkNotificationRead :execresult
+UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL;
+
+-- 既読のものは触らない。既読の時刻を上書きしないためである。
+-- name: MarkAllNotificationsRead :exec
+UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL;
+
+-- 既読にできるかの確認に使う。存在しない場合と他人あての場合を区別しない。
+-- name: NotificationExists :one
+SELECT EXISTS(SELECT 1 FROM notifications WHERE id = ? AND user_id = ?);

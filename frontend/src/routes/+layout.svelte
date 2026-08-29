@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import favicon from '$lib/assets/favicon.svg';
+	import { getUnreadCount } from '$lib/api/notifications';
 	import { logout, restoreSession, session } from '$lib/auth/session.svelte';
 	import '$lib/styles/tokens.css';
 
@@ -13,6 +14,35 @@
 	$effect(() => {
 		void restoreSession();
 	});
+
+	/**
+	 * 未読の件数。見出しに数を出すためだけに引く。
+	 *
+	 * **画面を移るたびに取り直す。** リアルタイムの更新はしない
+	 * （常時つなぐ仕組みを持ち込むほどの機能ではない）。
+	 * 数だけの軽い問い合わせなので、遷移ごとでも負担が小さい。
+	 */
+	let unreadCount = $state(0);
+
+	$effect(() => {
+		// page.url を読むことで、画面を移るたびに取り直す。
+		void page.url.pathname;
+		if (!session.restored || !session.isAuthenticated) {
+			unreadCount = 0;
+			return;
+		}
+		void refreshUnread();
+	});
+
+	async function refreshUnread() {
+		try {
+			const { unreadCount: n } = await getUnreadCount();
+			unreadCount = n;
+		} catch {
+			// 数が取れなくても画面は使える。見出しの数を出さないだけにする。
+			unreadCount = 0;
+		}
+	}
 
 	async function handleLogout() {
 		await logout();
@@ -38,6 +68,13 @@
 		<nav aria-label="主要">
 			<a href={resolve('/')}>フィード</a>
 			<a href={resolve('/explore')}>発見</a>
+			<!--
+				未読は数字だけでなく語も添える。「3」だけでは何の数か
+				読み上げで分からない。0件のときは数を出さない。
+			-->
+			<a href={resolve('/notifications')}>
+				通知{#if unreadCount > 0}<span class="unread">{unreadCount}件の未読</span>{/if}
+			</a>
 		</nav>
 	{/if}
 
@@ -104,6 +141,17 @@
 
 	.who {
 		color: var(--color-text-muted);
+	}
+
+	.unread {
+		display: inline-block;
+		margin-left: var(--space-2);
+		padding: 0 var(--space-2);
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: var(--color-accent-text);
+		background: var(--color-accent);
+		border-radius: var(--radius);
 	}
 
 	nav button {

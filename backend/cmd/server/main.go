@@ -79,6 +79,7 @@ func run() error {
 		Reactions:     store.NewReactionStore(db),
 		Follows:       store.NewFollowStore(db),
 		Search:        search.NewMySQLSearcher(db),
+		Notifications: store.NewNotificationStore(db),
 		Storage:       objectStorage,
 		TokenIssuer:   tokens,
 		TokenVerifier: tokens,

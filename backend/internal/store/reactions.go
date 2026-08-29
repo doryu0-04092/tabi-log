@@ -12,7 +12,8 @@ import (
 
 // 反応に関する store のエラー。
 var (
-	ErrCommentNotFound = errors.New("コメントが見つからない")
+	ErrCommentNotFound      = errors.New("コメントが見つからない")
+	ErrNotificationNotFound = errors.New("通知が見つからない")
 )
 
 // ReactionStore はいいねとコメントを扱う。
