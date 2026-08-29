@@ -282,6 +282,47 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /feed/following:
+    get:
+      tags: [posts]
+      operationId: listFollowingFeed
+      summary: フォロー中フィード
+      description: |
+        **自分がフォローしている利用者**の投稿を投稿日の新しい順に返す。
+        カーソルの扱いは新着フィードと同じ。
+
+        **自分の投稿は含まない。** 自分自身はフォローできないため、
+        「フォローしている人の投稿」に自分は入らない。
+        自分の投稿はプロフィールで見る。
+
+        > **ここは負荷試験の対象である。** 想定は1人あたり平均200フォロー。
+        > 絞り込みの元が `follows` の走査になるため、フォロー数が増えると
+        > 1ページ返すのに読む行が増える。実測して必要なら作り方を変える。
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: 前回の応答の `nextCursor`
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: 投稿の一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
   /users/{handle}:
     parameters:
       - $ref: '#/components/parameters/Handle'

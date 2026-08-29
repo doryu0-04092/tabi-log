@@ -117,6 +117,98 @@ func (q *Queries) GetPostOwner(ctx context.Context, id uint64) (uint64, error) {
 	return user_id, err
 }
 
+const listFollowingFeedBefore = `-- name: ListFollowingFeedBefore :many
+SELECT
+    p.id, p.user_id, p.body, p.prefecture_code, p.spot_name, p.visited_on,
+    p.like_count, p.comment_count, p.created_at, p.updated_at,
+    u.handle, u.display_name, u.bio,
+    pref.name AS prefecture_name, pref.name_kana AS prefecture_name_kana, pref.region
+FROM posts p
+JOIN follows f ON f.followee_id = p.user_id AND f.follower_id = ?
+JOIN users u ON u.id = p.user_id
+JOIN prefectures pref ON pref.code = p.prefecture_code
+WHERE p.id < ?
+ORDER BY p.id DESC
+LIMIT ?
+`
+
+type ListFollowingFeedBeforeParams struct {
+	FollowerID uint64
+	ID         uint64
+	Limit      int32
+}
+
+type ListFollowingFeedBeforeRow struct {
+	ID                 uint64
+	UserID             uint64
+	Body               string
+	PrefectureCode     string
+	SpotName           sql.NullString
+	VisitedOn          time.Time
+	LikeCount          uint32
+	CommentCount       uint32
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	Handle             string
+	DisplayName        string
+	Bio                sql.NullString
+	PrefectureName     string
+	PrefectureNameKana string
+	Region             string
+}
+
+// フォロー中フィード。
+//
+// **IN (SELECT ...) ではなく follows との JOIN で書く。**
+// 意味は同じだが、MySQL は JOIN のほうが結合順を選べる。
+//
+// **ここは負荷試験の対象である。** 想定は1人あたり平均200フォロー。
+// フォロー先は follows の主キー (follower_id, followee_id) で引けるが、
+// **全体を id 順に並べる部分は索引で解決できない。**
+// EXPLAIN に Using temporary; Using filesort が出る（2026-08-29 に実測）。
+// 複数の利用者の投稿を1つの順序に混ぜる以上、索引1本では避けられない。
+// 実測して厳しければ、フィードを事前に組み立てて持つ形（fan-out）へ
+// 作り方ごと変える判断になる。
+func (q *Queries) ListFollowingFeedBefore(ctx context.Context, arg ListFollowingFeedBeforeParams) ([]ListFollowingFeedBeforeRow, error) {
+	rows, err := q.db.QueryContext(ctx, listFollowingFeedBefore, arg.FollowerID, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListFollowingFeedBeforeRow{}
+	for rows.Next() {
+		var i ListFollowingFeedBeforeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Body,
+			&i.PrefectureCode,
+			&i.SpotName,
+			&i.VisitedOn,
+			&i.LikeCount,
+			&i.CommentCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Handle,
+			&i.DisplayName,
+			&i.Bio,
+			&i.PrefectureName,
+			&i.PrefectureNameKana,
+			&i.Region,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPostsBefore = `-- name: ListPostsBefore :many
 SELECT
     p.id, p.user_id, p.body, p.prefecture_code, p.spot_name, p.visited_on,
