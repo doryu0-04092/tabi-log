@@ -57,6 +57,7 @@ type PostRepository interface {
 	ListUserPosts(ctx context.Context, userID, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
 	ListFollowingFeed(ctx context.Context, viewerID, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
 	ListPostsByIDs(ctx context.Context, ids []uint64, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, error)
+	ListUserTravels(ctx context.Context, userID uint64, cursor store.TravelCursor, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, store.TravelCursor, error)
 }
 
 // ObjectStorage は画像の保存先。

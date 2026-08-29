@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { createPost, signup } from './fixtures/app';
+import { createPost, signup, toggleFollow } from './fixtures/app';
 
 /** フォローボタン。文言が状態で変わるため、両方に当たる名前で掴む。 */
 function followButton(page: Page, displayName: string) {
@@ -107,8 +107,7 @@ test.describe('フォロー', () => {
 
 		await signup(page);
 		await page.goto(`/users/${target.handle}`);
-		await followButton(page, '残るフォロー先').click();
-		await expect(followButton(page, '残るフォロー先')).toHaveAttribute('aria-pressed', 'true');
+		await toggleFollow(page, '残るフォロー先', true);
 
 		await page.reload();
 		await expect(followButton(page, '残るフォロー先')).toHaveAttribute('aria-pressed', 'true');
@@ -122,8 +121,7 @@ test.describe('フォロー', () => {
 
 		const me = await signup(page, { displayName: '一覧を見る人' });
 		await page.goto(`/users/${target.handle}`);
-		await followButton(page, '一覧に出る人').click();
-		await expect(followButton(page, '一覧に出る人')).toHaveAttribute('aria-pressed', 'true');
+		await toggleFollow(page, '一覧に出る人', true);
 
 		// 相手のフォロワー一覧に自分が出る。
 		await page.goto(`/users/${target.handle}/followers`);
@@ -156,8 +154,7 @@ test.describe('フォロー', () => {
 
 		const me = await signup(page, { displayName: '区別する人' });
 		await page.goto(`/users/${target.handle}`);
-		await followButton(page, '区別される人').click();
-		await expect(followButton(page, '区別される人')).toHaveAttribute('aria-pressed', 'true');
+		await toggleFollow(page, '区別される人', true);
 
 		await page.goto(`/users/${me.handle}/following`);
 		// 名前を含む読み上げ用のラベルで、どの相手のボタンかが分かる。
@@ -174,8 +171,7 @@ test.describe('フォロー', () => {
 
 		await signup(page, { displayName: '検査のフォロワー' });
 		await page.goto(`/users/${target.handle}`);
-		await followButton(page, '検査のフォロー先').click();
-		await expect(followButton(page, '検査のフォロー先')).toHaveAttribute('aria-pressed', 'true');
+		await toggleFollow(page, '検査のフォロー先', true);
 
 		await page.goto(`/users/${target.handle}/followers`);
 		await expect(page.getByRole('link', { name: /検査のフォロワー/ })).toBeVisible();

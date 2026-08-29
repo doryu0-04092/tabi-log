@@ -42,6 +42,7 @@ type server struct {
 	*userHandler
 	*searchHandler
 	*notificationHandler
+	*accountHandler
 }
 
 // Deps はルーターの構築に必要な依存をまとめる。
@@ -55,6 +56,7 @@ type Deps struct {
 	Follows       FollowRepository
 	Search        SearchRepository
 	Notifications NotificationRepository
+	Account       AccountRepository
 	Storage       ObjectStorage
 
 	TokenIssuer   auth.TokenIssuer
@@ -118,6 +120,16 @@ func NewRouter(deps Deps) http.Handler {
 			likes:   deps.Reactions,
 			storage: deps.Storage,
 			logger:  deps.Logger,
+		},
+		accountHandler: &accountHandler{
+			repo:    deps.Account,
+			posts:   deps.Posts,
+			likes:   deps.Reactions,
+			follows: deps.Follows,
+			storage: deps.Storage,
+			opts:    deps.AuthOptions,
+			logger:  deps.Logger,
+			now:     time.Now,
 		},
 		notificationHandler: &notificationHandler{
 			repo:   deps.Notifications,

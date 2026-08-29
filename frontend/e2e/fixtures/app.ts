@@ -77,3 +77,38 @@ export async function createPost(
 
 	await expect(page).toHaveURL(/\/posts\/\d+$/);
 }
+
+/**
+ * フォローを切り替え、**サーバーが受け付けるまで待つ。**
+ *
+ * ボタンは応答を待たずに見た目を変える（押してから数百ミリ秒あとに
+ * 変わると二度押しされるため）。つまり `aria-pressed` が変わったことは
+ * **サーバーに届いた証拠にならない。** 待たずに画面を移ると、
+ * 送信中のリクエストが打ち切られることがある。
+ */
+export async function toggleFollow(page: Page, displayName: string, want: boolean): Promise<void> {
+	const button = page.getByRole('button', { name: new RegExp(`^${displayName}を`) });
+	const accepted = page.waitForResponse(
+		(r) =>
+			r.url().includes('/follow') &&
+			r.request().method() === (want ? 'PUT' : 'DELETE') &&
+			r.status() === 204
+	);
+	await button.click();
+	await accepted;
+	await expect(button).toHaveAttribute('aria-pressed', String(want));
+}
+
+/** いいねを切り替え、**サーバーが受け付けるまで待つ。** 理由は toggleFollow と同じ。 */
+export async function toggleLike(page: Page, want: boolean): Promise<void> {
+	const button = page.getByRole('button', { name: /^いいね/ });
+	const accepted = page.waitForResponse(
+		(r) =>
+			r.url().includes('/likes') &&
+			r.request().method() === (want ? 'PUT' : 'DELETE') &&
+			r.status() === 204
+	);
+	await button.click();
+	await accepted;
+	await expect(button).toHaveAttribute('aria-pressed', String(want));
+}

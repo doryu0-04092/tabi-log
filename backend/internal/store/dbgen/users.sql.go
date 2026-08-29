@@ -57,6 +57,101 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (sql.Res
 	)
 }
 
+const decrementCommentCountsForUser = `-- name: DecrementCommentCountsForUser :exec
+UPDATE posts
+SET comment_count = GREATEST(
+    CAST(comment_count AS SIGNED)
+    - (SELECT COUNT(*) FROM comments c WHERE c.post_id = posts.id AND c.user_id = ?),
+    0)
+WHERE id IN (SELECT c2.post_id FROM comments c2 WHERE c2.user_id = ?)
+`
+
+type DecrementCommentCountsForUserParams struct {
+	UserID   uint64
+	UserID_2 uint64
+}
+
+// **消す前にカウンタ列を減らす。**
+// posts.comment_count / like_count は行を消しても自動では減らない。
+// 減らさないと、退会者がコメントしていた他人の投稿の件数がずれたまま残る。
+//
+// 自分の投稿は先に消してある（連鎖でその投稿へのコメントも消える）ため、
+// ここで残っているのは**他人の投稿に付けたもの**だけである。
+//
+// **UPDATE ... JOIN では書けない。** sqlc が posts.user_id と
+// comments.user_id を区別できず「曖昧」と判断する（実測）。相関副問い合わせで書く。
+//
+// **副問い合わせの中でも表の別名で修飾する。** 修飾しないと、
+// 外側の posts.user_id と同名になり、やはり曖昧だと判断される。
+//
+// GREATEST と CAST を使うのは、UNSIGNED 列が負の値で失敗するためである。
+func (q *Queries) DecrementCommentCountsForUser(ctx context.Context, arg DecrementCommentCountsForUserParams) error {
+	_, err := q.db.ExecContext(ctx, decrementCommentCountsForUser, arg.UserID, arg.UserID_2)
+	return err
+}
+
+const decrementLikeCountsForUser = `-- name: DecrementLikeCountsForUser :exec
+UPDATE posts
+SET like_count = GREATEST(CAST(like_count AS SIGNED) - 1, 0)
+WHERE id IN (SELECT l.post_id FROM likes l WHERE l.user_id = ?)
+`
+
+// いいねは (user_id, post_id) が主キーなので1投稿につき1件である。
+func (q *Queries) DecrementLikeCountsForUser(ctx context.Context, userID uint64) error {
+	_, err := q.db.ExecContext(ctx, decrementLikeCountsForUser, userID)
+	return err
+}
+
+const deleteCommentsByUser = `-- name: DeleteCommentsByUser :exec
+DELETE FROM comments WHERE user_id = ?
+`
+
+func (q *Queries) DeleteCommentsByUser(ctx context.Context, userID uint64) error {
+	_, err := q.db.ExecContext(ctx, deleteCommentsByUser, userID)
+	return err
+}
+
+const deleteFollowsByUser = `-- name: DeleteFollowsByUser :exec
+DELETE FROM follows WHERE follower_id = ? OR followee_id = ?
+`
+
+type DeleteFollowsByUserParams struct {
+	FollowerID uint64
+	FolloweeID uint64
+}
+
+func (q *Queries) DeleteFollowsByUser(ctx context.Context, arg DeleteFollowsByUserParams) error {
+	_, err := q.db.ExecContext(ctx, deleteFollowsByUser, arg.FollowerID, arg.FolloweeID)
+	return err
+}
+
+const deleteLikesByUser = `-- name: DeleteLikesByUser :exec
+DELETE FROM likes WHERE user_id = ?
+`
+
+func (q *Queries) DeleteLikesByUser(ctx context.Context, userID uint64) error {
+	_, err := q.db.ExecContext(ctx, deleteLikesByUser, userID)
+	return err
+}
+
+const deleteMediaByUser = `-- name: DeleteMediaByUser :exec
+DELETE FROM media WHERE user_id = ?
+`
+
+func (q *Queries) DeleteMediaByUser(ctx context.Context, userID uint64) error {
+	_, err := q.db.ExecContext(ctx, deleteMediaByUser, userID)
+	return err
+}
+
+const deletePostsByUser = `-- name: DeletePostsByUser :exec
+DELETE FROM posts WHERE user_id = ?
+`
+
+func (q *Queries) DeletePostsByUser(ctx context.Context, userID uint64) error {
+	_, err := q.db.ExecContext(ctx, deletePostsByUser, userID)
+	return err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, handle, email, password_hash, display_name, bio, avatar_media_id
 FROM users
@@ -150,4 +245,104 @@ func (q *Queries) GetUserByID(ctx context.Context, id uint64) (GetUserByIDRow, e
 		&i.AvatarMediaID,
 	)
 	return i, err
+}
+
+const listS3KeysByUser = `-- name: ListS3KeysByUser :many
+SELECT m.s3_key FROM media m WHERE m.user_id = ?
+UNION
+SELECT v.s3_key FROM media_variants v
+JOIN media m2 ON m2.id = v.media_id
+WHERE m2.user_id = ?
+`
+
+type ListS3KeysByUserParams struct {
+	UserID   uint64
+	UserID_2 uint64
+}
+
+// 退会時に消す対象。S3 のオブジェクトは外部キーの連鎖では消えないため、
+// 鍵を集めてから削除する。
+func (q *Queries) ListS3KeysByUser(ctx context.Context, arg ListS3KeysByUserParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listS3KeysByUser, arg.UserID, arg.UserID_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var s3_key string
+		if err := rows.Scan(&s3_key); err != nil {
+			return nil, err
+		}
+		items = append(items, s3_key)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const softDeleteUser = `-- name: SoftDeleteUser :exec
+UPDATE users
+SET deleted_at = ?,
+    email = ?,
+    display_name = '退会したユーザー',
+    bio = NULL,
+    avatar_media_id = NULL,
+    password_hash = ?
+WHERE id = ? AND deleted_at IS NULL
+`
+
+type SoftDeleteUserParams struct {
+	DeletedAt    sql.NullTime
+	Email        string
+	PasswordHash string
+	ID           uint64
+}
+
+// 退会。**物理削除しない。** ハンドルは解放せず保持する。
+// 解放すると別人が同じハンドルを取れてしまい、過去のリンクの指す先が変わる。
+//
+// メールアドレスは復元不能な値に置き換える。UNIQUE 制約があるため、
+// 元のアドレスで再登録できるようになる。
+func (q *Queries) SoftDeleteUser(ctx context.Context, arg SoftDeleteUserParams) error {
+	_, err := q.db.ExecContext(ctx, softDeleteUser,
+		arg.DeletedAt,
+		arg.Email,
+		arg.PasswordHash,
+		arg.ID,
+	)
+	return err
+}
+
+const updatePassword = `-- name: UpdatePassword :exec
+UPDATE users SET password_hash = ? WHERE id = ? AND deleted_at IS NULL
+`
+
+type UpdatePasswordParams struct {
+	PasswordHash string
+	ID           uint64
+}
+
+func (q *Queries) UpdatePassword(ctx context.Context, arg UpdatePasswordParams) error {
+	_, err := q.db.ExecContext(ctx, updatePassword, arg.PasswordHash, arg.ID)
+	return err
+}
+
+const updateProfile = `-- name: UpdateProfile :exec
+UPDATE users SET display_name = ?, bio = ? WHERE id = ? AND deleted_at IS NULL
+`
+
+type UpdateProfileParams struct {
+	DisplayName string
+	Bio         sql.NullString
+	ID          uint64
+}
+
+func (q *Queries) UpdateProfile(ctx context.Context, arg UpdateProfileParams) error {
+	_, err := q.db.ExecContext(ctx, updateProfile, arg.DisplayName, arg.Bio, arg.ID)
+	return err
 }

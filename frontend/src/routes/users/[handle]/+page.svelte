@@ -7,6 +7,7 @@
 		getUserProfile,
 		listUserPosts,
 		listUserPrefectures,
+		listUserTravels,
 		PREFECTURE_TOTAL,
 		type PrefectureCount,
 		type UserProfile
@@ -34,13 +35,24 @@
 
 	let handle = $derived(page.params.handle ?? '');
 
+	/**
+	 * 投稿日順と訪問日順のどちらを見ているか。
+	 *
+	 * **時間軸が2つある。** 旅行から帰ったあとにまとめて投稿するのが
+	 * 自然な使われ方であり、「共有した順」と「行った順」は別物である。
+	 * URL に持たせて、リロードや共有で戻れるようにする。
+	 */
+	let tab = $derived<'posts' | 'travels'>(
+		page.url.searchParams.get('tab') === 'travels' ? 'travels' : 'posts'
+	);
+
 	$effect(() => {
 		if (session.restored && session.isAuthenticated) {
-			void load(handle);
+			void load(handle, tab);
 		}
 	});
 
-	async function load(h: string) {
+	async function load(h: string, which: 'posts' | 'travels') {
 		if (!h) return;
 		view = { kind: 'loading' };
 		posts = [];
@@ -71,7 +83,7 @@
 		}
 
 		try {
-			const feed = await listUserPosts(h);
+			const feed = which === 'travels' ? await listUserTravels(h) : await listUserPosts(h);
 			posts = feed.posts;
 			nextCursor = feed.nextCursor ?? null;
 		} catch {
@@ -86,7 +98,10 @@
 		if (!nextCursor || loadingMore) return;
 		loadingMore = true;
 		try {
-			const feed = await listUserPosts(handle, nextCursor);
+			const feed =
+				tab === 'travels'
+					? await listUserTravels(handle, nextCursor)
+					: await listUserPosts(handle, nextCursor);
 			posts = [...posts, ...feed.posts];
 			nextCursor = feed.nextCursor ?? null;
 		} catch {
@@ -131,7 +146,9 @@
 		</div>
 
 		<!-- 自分自身にフォローの導線は出さない。押せない導線は迷いのもとになる。 -->
-		{#if !view.profile.isMe}
+		{#if view.profile.isMe}
+			<a class="edit" href={resolve('/settings/profile')}>プロフィールを編集</a>
+		{:else}
 			<FollowButton
 				handle={view.profile.handle}
 				displayName={view.profile.displayName}
@@ -189,7 +206,26 @@
 		<ConquestMap {prefectures} />
 	{/if}
 
-	<h2>投稿</h2>
+	<h2>{tab === 'travels' ? '旅行履歴' : '投稿'}</h2>
+
+	<!--
+		タブはリンクにする。ボタンだと戻る操作で前のタブへ戻れず、
+		URL を共有しても相手には別のタブが開く。
+	-->
+	<nav class="tabs" aria-label="一覧の並び">
+		<a
+			href={resolve('/users/[handle]', { handle: view.profile.handle })}
+			aria-current={tab === 'posts' ? 'page' : undefined}
+		>
+			投稿日順
+		</a>
+		<a
+			href="{resolve('/users/[handle]', { handle: view.profile.handle })}?tab=travels"
+			aria-current={tab === 'travels' ? 'page' : undefined}
+		>
+			訪問日順
+		</a>
+	</nav>
 
 	{#if !postsLoaded}
 		<p>読み込んでいます…</p>
@@ -257,6 +293,43 @@
 	h2 {
 		margin-top: var(--space-6);
 		font-size: 1.125rem;
+	}
+
+	.edit {
+		min-height: 2.75rem;
+		display: inline-flex;
+		align-items: center;
+		padding: var(--space-2) var(--space-4);
+		font-weight: 600;
+		color: var(--color-text);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius);
+		text-decoration: none;
+	}
+
+	.tabs {
+		display: flex;
+		gap: var(--space-2);
+		margin-bottom: var(--space-4);
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.tabs a {
+		min-height: 2.75rem;
+		display: flex;
+		align-items: center;
+		padding: 0 var(--space-4);
+		color: var(--color-text-muted);
+		text-decoration: none;
+		border-bottom: 3px solid transparent;
+	}
+
+	/* 現在地は太字と下線の両方で示す。色の違いだけに頼らない。 */
+	.tabs a[aria-current='page'] {
+		color: var(--color-text);
+		font-weight: 700;
+		border-bottom-color: var(--color-accent);
 	}
 
 	.empty {

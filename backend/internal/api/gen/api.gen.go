@@ -225,6 +225,36 @@ func (e SearchPostsParamsSort) Valid() bool {
 	}
 }
 
+// Defines values for DeleteAccountParamsXRequestedWith.
+const (
+	DeleteAccountParamsXRequestedWithTabiLog DeleteAccountParamsXRequestedWith = "tabi-log"
+)
+
+// Valid indicates whether the value is a known member of the DeleteAccountParamsXRequestedWith enum.
+func (e DeleteAccountParamsXRequestedWith) Valid() bool {
+	switch e {
+	case DeleteAccountParamsXRequestedWithTabiLog:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChangePasswordParamsXRequestedWith.
+const (
+	ChangePasswordParamsXRequestedWithTabiLog ChangePasswordParamsXRequestedWith = "tabi-log"
+)
+
+// Valid indicates whether the value is a known member of the ChangePasswordParamsXRequestedWith enum.
+func (e ChangePasswordParamsXRequestedWith) Valid() bool {
+	switch e {
+	case ChangePasswordParamsXRequestedWithTabiLog:
+		return true
+	default:
+		return false
+	}
+}
+
 // AuthResponse defines model for AuthResponse.
 type AuthResponse struct {
 	Data struct {
@@ -243,6 +273,12 @@ type AuthResponse struct {
 		// User 公開してよい利用者情報のみを含む。メールアドレスは含めない
 		User User `json:"user"`
 	} `json:"data"`
+}
+
+// ChangePasswordRequest defines model for ChangePasswordRequest.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
 }
 
 // Comment defines model for Comment.
@@ -295,6 +331,12 @@ type CreatePostRequest struct {
 	// VisitedOn 訪問日。**投稿日とは別の軸である。** 旅行から帰ったあとに
 	// まとめて投稿するのが自然な使われ方のため。未来日は受け付けない。
 	VisitedOn openapi_types.Date `json:"visitedOn"`
+}
+
+// DeleteAccountRequest defines model for DeleteAccountRequest.
+type DeleteAccountRequest struct {
+	// CurrentPassword 取り消せない操作のため、本人であることを確かめる
+	CurrentPassword string `json:"currentPassword"`
 }
 
 // ErrorResponse defines model for ErrorResponse.
@@ -594,6 +636,13 @@ type UpdatePostRequest struct {
 	VisitedOn      openapi_types.Date `json:"visitedOn"`
 }
 
+// UpdateProfileRequest 送られた項目だけを変える。省略した項目は現在の値のまま
+type UpdateProfileRequest struct {
+	// Bio 空文字を送ると消す。省略した場合は変えない
+	Bio         *string `json:"bio,omitempty"`
+	DisplayName *string `json:"displayName,omitempty"`
+}
+
 // User 公開してよい利用者情報のみを含む。メールアドレスは含めない
 type User struct {
 	Bio *string `json:"bio,omitempty"`
@@ -637,6 +686,12 @@ type UserProfile struct {
 // UserProfileResponse defines model for UserProfileResponse.
 type UserProfileResponse struct {
 	Data UserProfile `json:"data"`
+}
+
+// UserResponse defines model for UserResponse.
+type UserResponse struct {
+	// Data 公開してよい利用者情報のみを含む。メールアドレスは含めない
+	Data User `json:"data"`
 }
 
 // UserSummary 一覧に並べる利用者。フォローの導線を出すための状態を含む
@@ -786,6 +841,34 @@ type SearchUsersParams struct {
 	Limit  *UserLimit  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// DeleteAccountParams defines parameters for DeleteAccount.
+type DeleteAccountParams struct {
+	// XRequestedWith CSRF 対策。値は `tabi-log` 固定。
+	//
+	// カスタムヘッダーは単純リクエストの条件を外れるため、
+	// クロスオリジンから送るには CORS のプリフライトが通る必要がある。
+	// フォーム送信や `<img>` のような**プリフライトを伴わない経路では付けられない**。
+	// `SameSite=Strict` と合わせて二重に守る。
+	XRequestedWith DeleteAccountParamsXRequestedWith `json:"X-Requested-With"`
+}
+
+// DeleteAccountParamsXRequestedWith defines parameters for DeleteAccount.
+type DeleteAccountParamsXRequestedWith string
+
+// ChangePasswordParams defines parameters for ChangePassword.
+type ChangePasswordParams struct {
+	// XRequestedWith CSRF 対策。値は `tabi-log` 固定。
+	//
+	// カスタムヘッダーは単純リクエストの条件を外れるため、
+	// クロスオリジンから送るには CORS のプリフライトが通る必要がある。
+	// フォーム送信や `<img>` のような**プリフライトを伴わない経路では付けられない**。
+	// `SameSite=Strict` と合わせて二重に守る。
+	XRequestedWith ChangePasswordParamsXRequestedWith `json:"X-Requested-With"`
+}
+
+// ChangePasswordParamsXRequestedWith defines parameters for ChangePassword.
+type ChangePasswordParamsXRequestedWith string
+
 // ListFollowersParams defines parameters for ListFollowers.
 type ListFollowersParams struct {
 	// Cursor 前回の応答の `nextCursor`
@@ -802,6 +885,13 @@ type ListFollowingParams struct {
 
 // ListUserPostsParams defines parameters for ListUserPosts.
 type ListUserPostsParams struct {
+	// Cursor 前回の応答の `nextCursor`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListUserTravelsParams defines parameters for ListUserTravels.
+type ListUserTravelsParams struct {
 	// Cursor 前回の応答の `nextCursor`
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
@@ -824,6 +914,15 @@ type UpdatePostJSONRequestBody = UpdatePostRequest
 
 // CreateCommentJSONRequestBody defines body for CreateComment for application/json ContentType.
 type CreateCommentJSONRequestBody = CreateCommentRequest
+
+// DeleteAccountJSONRequestBody defines body for DeleteAccount for application/json ContentType.
+type DeleteAccountJSONRequestBody = DeleteAccountRequest
+
+// UpdateProfileJSONRequestBody defines body for UpdateProfile for application/json ContentType.
+type UpdateProfileJSONRequestBody = UpdateProfileRequest
+
+// ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
+type ChangePasswordJSONRequestBody = ChangePasswordRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -908,6 +1007,15 @@ type ServerInterface interface {
 	// SearchUsers 利用者を探す
 	// (GET /search/users)
 	SearchUsers(w http.ResponseWriter, r *http.Request, params SearchUsersParams)
+	// DeleteAccount 退会する
+	// (DELETE /users/me)
+	DeleteAccount(w http.ResponseWriter, r *http.Request, params DeleteAccountParams)
+	// UpdateProfile プロフィールを編集する
+	// (PATCH /users/me)
+	UpdateProfile(w http.ResponseWriter, r *http.Request)
+	// ChangePassword パスワードを変更する
+	// (PUT /users/me/password)
+	ChangePassword(w http.ResponseWriter, r *http.Request, params ChangePasswordParams)
 	// GetUserProfile プロフィールを取得する
 	// (GET /users/{handle})
 	GetUserProfile(w http.ResponseWriter, r *http.Request, handle Handle)
@@ -929,6 +1037,9 @@ type ServerInterface interface {
 	// ListUserPrefectures 都道府県ごとの投稿数
 	// (GET /users/{handle}/prefectures)
 	ListUserPrefectures(w http.ResponseWriter, r *http.Request, handle Handle)
+	// ListUserTravels 旅行履歴（訪問日順）
+	// (GET /users/{handle}/travels)
+	ListUserTravels(w http.ResponseWriter, r *http.Request, handle Handle, params ListUserTravelsParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -1819,6 +1930,110 @@ func (siw *ServerInterfaceWrapper) SearchUsers(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteAccount operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteAccountParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Requested-With" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Requested-With")]; found {
+		var XRequestedWith DeleteAccountParamsXRequestedWith
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Requested-With", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Requested-With", valueList[0], &XRequestedWith, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Requested-With", Err: err})
+			return
+		}
+
+		params.XRequestedWith = XRequestedWith
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Requested-With is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Requested-With", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAccount(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateProfile operation middleware
+func (siw *ServerInterfaceWrapper) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateProfile(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ChangePassword operation middleware
+func (siw *ServerInterfaceWrapper) ChangePassword(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ChangePasswordParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Requested-With" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Requested-With")]; found {
+		var XRequestedWith ChangePasswordParamsXRequestedWith
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Requested-With", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Requested-With", valueList[0], &XRequestedWith, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Requested-With", Err: err})
+			return
+		}
+
+		params.XRequestedWith = XRequestedWith
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Requested-With is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Requested-With", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ChangePassword(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetUserProfile operation middleware
 func (siw *ServerInterfaceWrapper) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 
@@ -2088,6 +2303,61 @@ func (siw *ServerInterfaceWrapper) ListUserPrefectures(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// ListUserTravels operation middleware
+func (siw *ServerInterfaceWrapper) ListUserTravels(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "handle" -------------
+	var handle Handle
+
+	err = runtime.BindStyledParameterWithOptions("simple", "handle", r.PathValue("handle"), &handle, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "handle", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUserTravelsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUserTravels(w, r, handle, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -2218,6 +2488,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/posts", wrapper.SearchPosts)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/users", wrapper.SearchUsers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/feed/following", wrapper.ListFollowingFeed)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/users/me", wrapper.DeleteAccount)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/users/me", wrapper.UpdateProfile)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/users/me/password", wrapper.ChangePassword)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}/travels", wrapper.ListUserTravels)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}", wrapper.GetUserProfile)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/users/{handle}/follow", wrapper.UnfollowUser)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/users/{handle}/follow", wrapper.FollowUser)

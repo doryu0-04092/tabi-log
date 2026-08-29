@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -56,10 +57,12 @@ type testDeps struct {
 	prefectures   PrefectureLister
 	auth          AuthRepository
 	posts         PostRepository
+	storage       ObjectStorage
 	reactions     ReactionRepository
 	follows       FollowRepository
 	search        SearchRepository
 	notifications NotificationRepository
+	account       AccountRepository
 	tokens        *auth.JWTService
 }
 
@@ -78,6 +81,9 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 	if d.posts == nil {
 		d.posts = &stubPostRepo{}
 	}
+	if d.storage == nil {
+		d.storage = &stubStorage{}
+	}
 	if d.reactions == nil {
 		d.reactions = &stubReactionRepo{}
 	}
@@ -90,16 +96,21 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 	if d.notifications == nil {
 		d.notifications = &stubNotificationRepo{}
 	}
+	if d.account == nil {
+		d.account = &stubAccountRepo{}
+	}
 
 	deps := Deps{
 		DB:            stubPinger{err: d.pingErr},
 		Prefectures:   d.prefectures,
 		Auth:          d.auth,
 		Posts:         d.posts,
+		Storage:       d.storage,
 		Reactions:     d.reactions,
 		Follows:       d.follows,
 		Search:        d.search,
 		Notifications: d.notifications,
+		Account:       d.account,
 		TokenIssuer:   d.tokens,
 		TokenVerifier: d.tokens,
 		AuthOptions: AuthOptions{
@@ -237,6 +248,10 @@ type stubPostRepo struct {
 	lastViewerID uint64
 	// 検索が決めた並びが保たれているかを見るために記録する。
 	lastIDs []uint64
+
+	// 旅行履歴はカーソルの形が違う（訪問日と ID の組）。
+	lastTravelCursor store.TravelCursor
+	nextTravelCursor store.TravelCursor
 }
 
 func (s *stubPostRepo) CreatePendingMedia(context.Context, uint64, string) (uint64, error) {
@@ -271,6 +286,11 @@ func (s *stubPostRepo) ListFollowingFeed(_ context.Context, viewerID, _ uint64, 
 
 // 検索は ID の並びだけを決め、本体はここで組み立てられる。
 // 並びが保たれることを確かめられるよう、渡された順に返す。
+func (s *stubPostRepo) ListUserTravels(_ context.Context, _ uint64, cursor store.TravelCursor, _ int, _ storage.URLSigner, _ time.Duration) ([]domain.Post, store.TravelCursor, error) {
+	s.lastTravelCursor = cursor
+	return s.posts, s.nextTravelCursor, s.listErr
+}
+
 func (s *stubPostRepo) ListPostsByIDs(_ context.Context, ids []uint64, _ storage.URLSigner, _ time.Duration) ([]domain.Post, error) {
 	s.lastIDs = ids
 	byID := make(map[uint64]domain.Post, len(s.posts))
@@ -500,4 +520,91 @@ func (s *stubNotificationRepo) MarkAllRead(_ context.Context, userID uint64, _ t
 	}
 	s.markedAllFor = append(s.markedAllFor, userID)
 	return nil
+}
+
+// stubAccountRepo は呼び出しを記録し、返す値を差し替えられる。
+type stubAccountRepo struct {
+	current    domain.User
+	currentErr error
+
+	hash    string
+	hashErr error
+
+	updated       []domain.User
+	updateErr     error
+	changedHashes []string
+	changeErr     error
+	deletedFor    []uint64
+	deleteKeys    []string
+	deleteErr     error
+}
+
+func (s *stubAccountRepo) Current(context.Context, uint64) (domain.User, error) {
+	return s.current, s.currentErr
+}
+
+func (s *stubAccountRepo) UpdateProfile(_ context.Context, userID uint64, displayName string, bio *string) (domain.User, error) {
+	if s.updateErr != nil {
+		return domain.User{}, s.updateErr
+	}
+	u := domain.User{ID: userID, Handle: s.current.Handle, DisplayName: displayName, Bio: bio}
+	s.updated = append(s.updated, u)
+	return u, nil
+}
+
+func (s *stubAccountRepo) Credentials(context.Context, uint64) (string, error) {
+	return s.hash, s.hashErr
+}
+
+func (s *stubAccountRepo) ChangePassword(_ context.Context, _ uint64, newHash string, _ time.Time) error {
+	if s.changeErr != nil {
+		return s.changeErr
+	}
+	s.changedHashes = append(s.changedHashes, newHash)
+	return nil
+}
+
+func (s *stubAccountRepo) DeleteAccount(_ context.Context, userID uint64, _ time.Time) ([]string, error) {
+	if s.deleteErr != nil {
+		return nil, s.deleteErr
+	}
+	s.deletedFor = append(s.deletedFor, userID)
+	return s.deleteKeys, nil
+}
+
+// errStorageForTest は保存先の失敗を表す。
+var errStorageForTest = errors.New("保存先で失敗した")
+
+// stubStorage は消した鍵を記録する。
+//
+// 退会で **S3 のオブジェクトを明示的に消しているか** を確かめるために使う。
+type stubStorage struct {
+	deleted   []string
+	deleteErr error
+}
+
+func (s *stubStorage) PresignGet(_ context.Context, key string, _ time.Duration) (string, error) {
+	return "https://example.test/" + key, nil
+}
+
+func (s *stubStorage) PresignPut(context.Context, string, string, int64, time.Duration) (string, error) {
+	return "https://example.test/upload", nil
+}
+
+func (s *stubStorage) Delete(_ context.Context, keys ...string) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	s.deleted = append(s.deleted, keys...)
+	return nil
+}
+
+// mustDate は "YYYY-MM-DD" を時刻に変える。
+func mustDate(t *testing.T, s string) time.Time {
+	t.Helper()
+	d, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		t.Fatalf("日付を解釈できない: %v", err)
+	}
+	return d
 }
