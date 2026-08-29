@@ -43,6 +43,38 @@ func (s *PostStore) ListFeed(
 	return s.buildPage(ctx, rows, limit, signer, urlTTL)
 }
 
+// ListFollowingFeed はフォロー中の利用者の投稿を新しい順に返す。
+//
+// **自分の投稿は含まない。** 自分自身はフォローできないため、
+// 「フォローしている人の投稿」に自分は入らない。
+func (s *PostStore) ListFollowingFeed(
+	ctx context.Context,
+	viewerID uint64,
+	cursorID uint64,
+	limit int,
+	signer storage.URLSigner,
+	urlTTL time.Duration,
+) ([]domain.Post, uint64, error) {
+	if cursorID == 0 {
+		cursorID = maxCursorID
+	}
+
+	rows, err := s.q.ListFollowingFeedBefore(ctx, dbgen.ListFollowingFeedBeforeParams{
+		FollowerID: viewerID,
+		ID:         cursorID,
+		Limit:      int32(limit + 1),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("フォロー中フィードの取得に失敗した: %w", err)
+	}
+
+	converted := make([]dbgen.ListPostsBeforeRow, 0, len(rows))
+	for _, r := range rows {
+		converted = append(converted, dbgen.ListPostsBeforeRow(r))
+	}
+	return s.buildPage(ctx, converted, limit, signer, urlTTL)
+}
+
 // ListUserPosts はある利用者の投稿を新しい順に返す。
 //
 // 並びとカーソルの扱いは新着フィードと同じである。違うのは絞り込みだけなので、

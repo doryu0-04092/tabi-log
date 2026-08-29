@@ -7,7 +7,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -56,6 +55,7 @@ type PostRepository interface {
 	GetPost(ctx context.Context, postID uint64, signer storage.URLSigner, ttl time.Duration) (domain.Post, error)
 	ListFeed(ctx context.Context, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
 	ListUserPosts(ctx context.Context, userID, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
+	ListFollowingFeed(ctx context.Context, viewerID, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
 }
 
 // ObjectStorage は画像の保存先。
@@ -541,58 +541,27 @@ const (
 )
 
 func (h *postHandler) ListPosts(w http.ResponseWriter, r *http.Request, params gen.ListPostsParams) {
-	limit := defaultFeedLimit
-	if params.Limit != nil {
-		limit = *params.Limit
-	}
-	if limit < 1 || limit > maxFeedLimit {
-		writeError(w, r, http.StatusBadRequest, "validation_error", "取得件数の指定が不正です")
+	writeFeedPage(w, r, h.likes, h.logger, params.Cursor, params.Limit,
+		func(ctx context.Context, cursorID uint64, limit int) ([]domain.Post, uint64, error) {
+			return h.repo.ListFeed(ctx, cursorID, limit, h.storage, displayURLTTL)
+		})
+}
+
+// ---------------------------------------------------------------------------
+// フォロー中フィード
+// ---------------------------------------------------------------------------
+
+func (h *postHandler) ListFollowingFeed(w http.ResponseWriter, r *http.Request, params gen.ListFollowingFeedParams) {
+	viewerID, ok := UserIDFrom(r.Context())
+	if !ok {
+		writeError(w, r, http.StatusUnauthorized, "unauthenticated", "ログインが必要です")
 		return
 	}
 
-	var cursor uint64
-	if params.Cursor != nil && *params.Cursor != "" {
-		v, err := strconv.ParseUint(*params.Cursor, 10, 64)
-		if err != nil {
-			// カーソルは前回の応答をそのまま渡す値である。
-			// 解釈できないものは受け付けず、先頭から返してごまかさない。
-			writeError(w, r, http.StatusBadRequest, "validation_error", "カーソルの指定が不正です")
-			return
-		}
-		cursor = v
-	}
-
-	posts, next, err := h.repo.ListFeed(r.Context(), cursor, limit, h.storage, displayURLTTL)
-	if err != nil {
-		h.internalError(w, r, "フィードの取得に失敗した", err)
-		return
-	}
-
-	// **いいねの状態は20件分を1クエリでまとめて引く。**
-	// 投稿ごとに問い合わせると20回の往復になる（N+1）。
-	postIDs := make([]uint64, 0, len(posts))
-	for _, p := range posts {
-		postIDs = append(postIDs, p.ID)
-	}
-	viewerID, _ := UserIDFrom(r.Context())
-	liked, err := h.likes.LikedPostIDs(r.Context(), viewerID, postIDs)
-	if err != nil {
-		h.internalError(w, r, "いいねの状態を取得できない", err)
-		return
-	}
-
-	items := make([]gen.Post, 0, len(posts))
-	for _, p := range posts {
-		items = append(items, toAPIPost(p, viewerID, liked[p.ID]))
-	}
-
-	var body gen.PostListResponse
-	body.Data.Posts = items
-	if next != 0 {
-		s := strconv.FormatUint(next, 10)
-		body.Data.NextCursor = &s
-	}
-	writeJSON(w, r, http.StatusOK, body.Data)
+	writeFeedPage(w, r, h.likes, h.logger, params.Cursor, params.Limit,
+		func(ctx context.Context, cursorID uint64, limit int) ([]domain.Post, uint64, error) {
+			return h.repo.ListFollowingFeed(ctx, viewerID, cursorID, limit, h.storage, displayURLTTL)
+		})
 }
 
 // ---------------------------------------------------------------------------

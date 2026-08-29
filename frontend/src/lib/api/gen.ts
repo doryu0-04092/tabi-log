@@ -189,6 +189,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed/following": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * フォロー中フィード
+         * @description **自分がフォローしている利用者**の投稿を投稿日の新しい順に返す。
+         *     カーソルの扱いは新着フィードと同じ。
+         *
+         *     **自分の投稿は含まない。** 自分自身はフォローできないため、
+         *     「フォローしている人の投稿」に自分は入らない。
+         *     自分の投稿はプロフィールで見る。
+         *
+         *     > **ここは負荷試験の対象である。** 想定は1人あたり平均200フォロー。
+         *     > 絞り込みの元が `follows` の走査になるため、フォロー数が増えると
+         *     > 1ページ返すのに読む行が増える。実測して必要なら作り方を変える。
+         */
+        get: operations["listFollowingFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/{handle}": {
         parameters: {
             query?: never;
@@ -1216,6 +1245,31 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listFollowingFeed: {
+        parameters: {
+            query?: {
+                /** @description 前回の応答の `nextCursor` */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 投稿の一覧 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
         };
     };
     getUserProfile: {

@@ -624,6 +624,13 @@ type RefreshParams struct {
 // RefreshParamsXRequestedWith defines parameters for Refresh.
 type RefreshParamsXRequestedWith string
 
+// ListFollowingFeedParams defines parameters for ListFollowingFeed.
+type ListFollowingFeedParams struct {
+	// Cursor 前回の応答の `nextCursor`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListPostsParams defines parameters for ListPosts.
 type ListPostsParams struct {
 	// Cursor 前回の応答の `nextCursor`。省略すると先頭から返す
@@ -697,6 +704,9 @@ type ServerInterface interface {
 	// DeleteComment コメントを削除する
 	// (DELETE /comments/{commentId})
 	DeleteComment(w http.ResponseWriter, r *http.Request, commentId int64)
+	// ListFollowingFeed フォロー中フィード
+	// (GET /feed/following)
+	ListFollowingFeed(w http.ResponseWriter, r *http.Request, params ListFollowingFeedParams)
 	// GetLivez プロセスの生存確認
 	// (GET /livez)
 	GetLivez(w http.ResponseWriter, r *http.Request)
@@ -917,6 +927,52 @@ func (siw *ServerInterfaceWrapper) DeleteComment(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteComment(w, r, commentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListFollowingFeed operation middleware
+func (siw *ServerInterfaceWrapper) ListFollowingFeed(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListFollowingFeedParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListFollowingFeed(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1649,6 +1705,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/media/presign", wrapper.PresignMediaUpload)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/media/{mediaId}", wrapper.GetMediaStatus)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/feed/following", wrapper.ListFollowingFeed)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}", wrapper.GetUserProfile)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/users/{handle}/follow", wrapper.UnfollowUser)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/users/{handle}/follow", wrapper.FollowUser)

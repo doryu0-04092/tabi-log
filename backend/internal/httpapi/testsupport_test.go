@@ -221,6 +221,9 @@ type stubPostRepo struct {
 	posts      []domain.Post
 	nextCursor uint64
 	listErr    error
+
+	// フォロー中フィードは閲覧者ごとに違う。誰の分を引いたかを記録する。
+	lastViewerID uint64
 }
 
 func (s *stubPostRepo) CreatePendingMedia(context.Context, uint64, string) (uint64, error) {
@@ -243,9 +246,13 @@ func (s *stubPostRepo) GetPost(context.Context, uint64, storage.URLSigner, time.
 	return domain.Post{}, nil
 }
 func (s *stubPostRepo) ListFeed(context.Context, uint64, int, storage.URLSigner, time.Duration) ([]domain.Post, uint64, error) {
-	return nil, 0, nil
+	return s.posts, s.nextCursor, s.listErr
 }
 func (s *stubPostRepo) ListUserPosts(context.Context, uint64, uint64, int, storage.URLSigner, time.Duration) ([]domain.Post, uint64, error) {
+	return s.posts, s.nextCursor, s.listErr
+}
+func (s *stubPostRepo) ListFollowingFeed(_ context.Context, viewerID, _ uint64, _ int, _ storage.URLSigner, _ time.Duration) ([]domain.Post, uint64, error) {
+	s.lastViewerID = viewerID
 	return s.posts, s.nextCursor, s.listErr
 }
 

@@ -74,21 +74,13 @@ func (h *userHandler) GetUserProfile(w http.ResponseWriter, r *http.Request, han
 }
 
 func (h *userHandler) ListUserPosts(w http.ResponseWriter, r *http.Request, handle gen.Handle, params gen.ListUserPostsParams) {
-	viewerID, ok := UserIDFrom(r.Context())
-	if !ok {
+	if _, ok := UserIDFrom(r.Context()); !ok {
 		writeError(w, r, http.StatusUnauthorized, "unauthenticated", "ログインが必要です")
 		return
 	}
 
-	limit, ok := h.resolveLimit(w, r, params.Limit, defaultFeedLimit, maxFeedLimit)
-	if !ok {
-		return
-	}
-	cursor, ok := h.resolveCursor(w, r, params.Cursor)
-	if !ok {
-		return
-	}
-
+	// **相手を先に引く。** 存在しない利用者に空の一覧を返すと、
+	// ハンドルの打ち間違いと「まだ投稿が無い」を区別できない。
 	user, err := h.repo.FindUserByHandle(r.Context(), handle)
 	if errors.Is(err, store.ErrUserNotFoundByHandle) {
 		writeError(w, r, http.StatusNotFound, "not_found", "利用者が見つかりません")
@@ -99,35 +91,10 @@ func (h *userHandler) ListUserPosts(w http.ResponseWriter, r *http.Request, hand
 		return
 	}
 
-	posts, next, err := h.posts.ListUserPosts(r.Context(), user.ID, cursor, limit, h.storage, displayURLTTL)
-	if err != nil {
-		h.internalError(w, r, "投稿の取得に失敗した", err)
-		return
-	}
-
-	// いいねの状態はフィードと同じくまとめて引く。
-	postIDs := make([]uint64, 0, len(posts))
-	for _, p := range posts {
-		postIDs = append(postIDs, p.ID)
-	}
-	liked, err := h.likes.LikedPostIDs(r.Context(), viewerID, postIDs)
-	if err != nil {
-		h.internalError(w, r, "いいねの状態を取得できない", err)
-		return
-	}
-
-	items := make([]gen.Post, 0, len(posts))
-	for _, p := range posts {
-		items = append(items, toAPIPost(p, viewerID, liked[p.ID]))
-	}
-
-	var body gen.PostListResponse
-	body.Data.Posts = items
-	if next != 0 {
-		s := strconv.FormatUint(next, 10)
-		body.Data.NextCursor = &s
-	}
-	writeJSON(w, r, http.StatusOK, body.Data)
+	writeFeedPage(w, r, h.likes, h.logger, params.Cursor, params.Limit,
+		func(ctx context.Context, cursorID uint64, limit int) ([]domain.Post, uint64, error) {
+			return h.posts.ListUserPosts(ctx, user.ID, cursorID, limit, h.storage, displayURLTTL)
+		})
 }
 
 // ---------------------------------------------------------------------------
@@ -211,11 +178,11 @@ func (h *userHandler) listUsers(
 		return
 	}
 
-	limit, ok := h.resolveLimit(w, r, limitParam, defaultUserLimit, maxUserLimit)
+	limit, ok := parseLimit(w, r, limitParam, defaultUserLimit, maxUserLimit)
 	if !ok {
 		return
 	}
-	cursor, ok := h.resolveCursor(w, r, cursorParam)
+	cursor, ok := parseCursor(w, r, cursorParam)
 	if !ok {
 		return
 	}
@@ -271,32 +238,6 @@ func (h *userHandler) listUsers(
 // ---------------------------------------------------------------------------
 // 共通処理
 // ---------------------------------------------------------------------------
-
-// resolveLimit は件数の指定を検証する。範囲外なら応答を書いて false を返す。
-func (h *userHandler) resolveLimit(w http.ResponseWriter, r *http.Request, param *int, def, max int) (int, bool) {
-	limit := def
-	if param != nil {
-		limit = *param
-	}
-	if limit < 1 || limit > max {
-		writeError(w, r, http.StatusBadRequest, "validation_error", "取得件数の指定が不正です")
-		return 0, false
-	}
-	return limit, true
-}
-
-// resolveCursor はカーソルの指定を検証する。省略時は 0（先頭から）。
-func (h *userHandler) resolveCursor(w http.ResponseWriter, r *http.Request, param *string) (uint64, bool) {
-	if param == nil || *param == "" {
-		return 0, true
-	}
-	v, err := strconv.ParseUint(*param, 10, 64)
-	if err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", "カーソルの指定が不正です")
-		return 0, false
-	}
-	return v, true
-}
 
 func (h *userHandler) internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {
 	attrs := []any{slog.String("request_id", RequestIDFrom(r.Context()))}

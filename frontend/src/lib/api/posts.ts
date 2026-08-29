@@ -18,6 +18,16 @@ export function listPosts(cursor?: string | null): Promise<Feed> {
 	return request<Feed>(`/posts${query}`);
 }
 
+/**
+ * フォロー中フィードを取得する。
+ *
+ * **自分の投稿は含まれない。** 自分自身はフォローできないためである。
+ */
+export function listFollowingFeed(cursor?: string | null): Promise<Feed> {
+	const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+	return request<Feed>(`/feed/following${query}`);
+}
+
 export function getPost(postId: number | string): Promise<Post> {
 	return request<Post>(`/posts/${postId}`);
 }
