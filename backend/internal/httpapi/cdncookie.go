@@ -64,8 +64,18 @@ func (c *cdnCookieIssuer) issue(ctx context.Context, w http.ResponseWriter, now 
 			// 描画で画像が出ないことになる。画像を取るだけの Cookie に
 			// CSRF の危険は無い。
 			SameSite: http.SameSiteLaxMode,
-			Expires:  now.Add(c.ttl),
-			MaxAge:   int(c.ttl.Seconds()),
+			// **Expires と Max-Age をあえて付けない。**
+			//
+			// AWS は「除外することを勧める。ブラウザを閉じたときに
+			// Cookie が消え、第三者に使われる余地が減る」としている
+			// （署名付き Cookie の設定手順）。
+			//
+			// **消えても困らない。** 次に開いたとき、画面は
+			// セッションを復元するために /auth/refresh を呼び、
+			// そこでこの Cookie も置き直される。
+			//
+			// なお有効期限そのものはポリシーの側（DateLessThan）が持つ。
+			// 期限が切れた Cookie は、残っていても CloudFront が弾く。
 		})
 	}
 }

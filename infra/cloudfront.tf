@@ -39,6 +39,16 @@ data "aws_cloudfront_cache_policy" "disabled" {
   name = "Managed-CachingDisabled"
 }
 
+# 画像用。CachingOptimized とほぼ同じだが、**圧縮済みオブジェクトの
+# キャッシュ設定が無効**である点だけ違う。
+#
+# CachingOptimized は正規化した Accept-Encoding をキャッシュキーに含めるため、
+# **JPEG のように再圧縮しても縮まないものでも、gzip / br / 無圧縮で
+# キャッシュが分かれる。** 画像には不利なので、そこを含めない方を使う。
+data "aws_cloudfront_cache_policy" "optimized_uncompressed" {
+  name = "Managed-CachingOptimizedForUncompressedObjects"
+}
+
 # API へは、あらゆるヘッダー・Cookie・クエリをそのまま渡す必要がある。
 data "aws_cloudfront_origin_request_policy" "all_viewer" {
   name = "Managed-AllViewer"
@@ -150,10 +160,18 @@ resource "aws_cloudfront_distribution" "main" {
     cached_methods         = ["GET", "HEAD"]
 
     # 変換物は一度作られたら中身が変わらない。長く持たせて安全である。
-    cache_policy_id = data.aws_cloudfront_cache_policy.optimized.id
+    #
+    # **画像用のポリシーを使う。** CachingOptimized だと
+    # Accept-Encoding がキャッシュキーに入り、再圧縮しても縮まない
+    # JPEG が gzip / br / 無圧縮で分かれてしまう。
+    cache_policy_id = data.aws_cloudfront_cache_policy.optimized_uncompressed.id
 
     # **Cookie を持つ者だけに配る。**
     # これが無いと、URL を知っている全員が読めることになる。
+    #
+    # **署名付き Cookie はキャッシュキーに入らない**（上のポリシーは
+    # Cookie を含めない）。CloudFront はエッジで検証してから
+    # キャッシュを引くので、利用者ごとにキャッシュが分裂しない。
     trusted_key_groups = [aws_cloudfront_key_group.cdn.id]
 
     # 画像は既に圧縮済みで、再圧縮しても縮まない。

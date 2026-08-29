@@ -67,6 +67,26 @@ func Test登録すると画像配信のCookieが置かれる(t *testing.T) {
 		if c.SameSite != http.SameSiteLaxMode {
 			t.Errorf("%s の SameSite が %v。Lax のはず", name, c.SameSite)
 		}
+
+		// **Expires と Max-Age を付けない。**
+		//
+		// AWS は「除外することを勧める。ブラウザを閉じたときに Cookie が
+		// 消え、第三者に使われる余地が減る」としている。
+		// 消えても、次に開いたときの復元（/auth/refresh）で置き直される。
+		if !c.Expires.IsZero() {
+			t.Errorf("%s に Expires が付いている: %v", name, c.Expires)
+		}
+		if c.MaxAge != 0 {
+			t.Errorf("%s に Max-Age が付いている: %d", name, c.MaxAge)
+		}
+
+		// **Domain を指定しない。**
+		// AWS の定めでは、指定する場合は URL のドメインと一致していなければ
+		// ならない。指定しなければ、その Cookie を置いたドメインが既定になる。
+		// 画面も画像も同じ配信ドメインなので、指定しない方が食い違わない。
+		if c.Domain != "" {
+			t.Errorf("%s に Domain が付いている: %q", name, c.Domain)
+		}
 	}
 }
 
