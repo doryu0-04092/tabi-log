@@ -66,6 +66,7 @@ func writeFeedPage(
 	w http.ResponseWriter,
 	r *http.Request,
 	likes ReactionRepository,
+	avatars *avatarResolver,
 	logger *slog.Logger,
 	limitParam *int,
 	fetch fetchPage,
@@ -103,6 +104,14 @@ func writeFeedPage(
 	for _, p := range posts {
 		items = append(items, toAPIPost(p, viewerID, liked[p.ID]))
 	}
+
+	// **投稿者のアバターは20件ぶんをまとめて引く。**
+	// 投稿ごとに引くと20回の往復になる。
+	authors := make([]*gen.User, 0, len(items))
+	for i := range items {
+		authors = append(authors, &items[i].Author)
+	}
+	avatars.fill(r.Context(), authors)
 
 	var body gen.PostListResponse
 	body.Data.Posts = items

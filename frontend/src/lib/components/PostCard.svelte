@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { components } from '$lib/api/gen';
+	import Avatar from '$lib/components/Avatar.svelte';
 	import LikeButton from '$lib/components/LikeButton.svelte';
 
 	type Post = components['schemas']['Post'];
@@ -33,6 +34,7 @@
 <article class="card">
 	<header>
 		<a class="author" href={resolve('/users/[handle]', { handle: post.author.handle })}>
+			<Avatar url={post.author.avatarUrl} displayName={post.author.displayName} size="small" />
 			<span class="name">{post.author.displayName}</span>
 			<span class="handle">@{post.author.handle}</span>
 		</a>

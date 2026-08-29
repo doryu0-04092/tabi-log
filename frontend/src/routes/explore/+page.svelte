@@ -5,6 +5,7 @@
 	import { listPrefectures, searchPosts, type Post, type Prefecture } from '$lib/api/posts';
 	import { searchUsers, type UserSummary } from '$lib/api/users';
 	import { session } from '$lib/auth/session.svelte';
+	import Avatar from '$lib/components/Avatar.svelte';
 	import FollowButton from '$lib/components/FollowButton.svelte';
 	import PostCard from '$lib/components/PostCard.svelte';
 
@@ -261,6 +262,7 @@
 				{#each results.users as user (user.id)}
 					<li>
 						<a class="identity" href={resolve('/users/[handle]', { handle: user.handle })}>
+							<Avatar url={user.avatarUrl} displayName={user.displayName} size="small" />
 							<span class="name">{user.displayName}</span>
 							<span class="handle">@{user.handle}</span>
 						</a>

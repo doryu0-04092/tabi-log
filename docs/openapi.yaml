@@ -547,6 +547,48 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
 
+  /users/me/avatar:
+    put:
+      tags: [users]
+      operationId: setAvatar
+      summary: アバターを設定する
+      description: |
+        **画像は投稿と同じ経路で先にアップロードする**
+        （`/media/presign` → S3 へ直接 PUT → 処理の完了を待つ）。
+        アバターにも EXIF の除去が要るため、経路を分けない。
+
+        使えるのは、**自分がアップロードし、処理が完了しており、
+        まだどの投稿にも使われていない**画像に限る。
+        条件に合わなければ 400 を返す。**理由は区別しない**
+        （他人の画像の ID を総当たりして存在を調べられないようにするため）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetAvatarRequest'
+      responses:
+        '204':
+          description: 設定した
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+    delete:
+      tags: [users]
+      operationId: clearAvatar
+      summary: アバターを外す
+      description: |
+        **冪等である。** 設定していなくても 204 を返す。
+
+        画像そのものは消さない。退会時にまとめて削除する。
+      responses:
+        '204':
+          description: 外した（設定していなかった場合も含む）
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
   /users/me/password:
     put:
       tags: [users]
@@ -1522,6 +1564,12 @@ components:
           type: string
           nullable: true
           maxLength: 300
+        avatarUrl:
+          type: string
+          nullable: true
+          description: |
+            アバターの表示用URL（署名付き、有効期間つき）。
+            設定していなければ null。**画面は必ず未設定の場合を描けること。**
 
     # -----------------------------------------------------------------------
     # プロフィールとフォロー
@@ -1542,6 +1590,10 @@ components:
         bio:
           type: string
           nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+          description: アバターの表示用URL。設定していなければ null
         isFollowing:
           type: boolean
           description: 閲覧者がこの利用者をフォローしているか
@@ -1575,6 +1627,10 @@ components:
         bio:
           type: string
           nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+          description: アバターの表示用URL。設定していなければ null
         postCount:
           type: integer
           minimum: 0
@@ -1632,6 +1688,16 @@ components:
           type: string
           maxLength: 300
           description: 空文字を送ると消す。省略した場合は変えない
+
+    SetAvatarRequest:
+      type: object
+      required: [mediaId]
+      properties:
+        mediaId:
+          type: integer
+          format: int64
+          minimum: 1
+          description: アップロードして処理が完了した画像のID
 
     ChangePasswordRequest:
       type: object

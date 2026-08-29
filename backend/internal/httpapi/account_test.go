@@ -358,3 +358,134 @@ func TestListUserTravelsUnknownHandleReturns404(t *testing.T) {
 		t.Fatalf("%d が返った。404 を期待した", rec.Code)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// アバター
+// ---------------------------------------------------------------------------
+
+func TestSetAvatar(t *testing.T) {
+	repo := &stubAccountRepo{current: currentUser()}
+	tokens := testTokens(t)
+	h := newRouter(t, testDeps{account: repo, tokens: tokens})
+
+	rec := doJSON(h, withBearer(
+		req(http.MethodPut, "/api/users/me/avatar", `{"mediaId":42}`),
+		mustIssue(t, tokens, 7),
+	))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("%d が返った。204 を期待した。body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.setAvatarIDs) != 1 || repo.setAvatarIDs[0] != 42 {
+		t.Fatalf("設定した画像が %v。42 を期待した", repo.setAvatarIDs)
+	}
+}
+
+// **理由は区別しない。** 他人の画像 / 未処理 / 使用済み を分けて返すと、
+// ID を総当たりして他人の画像の存在を調べられる。
+func TestSetAvatarRejectsUnusableMediaWithoutDetail(t *testing.T) {
+	repo := &stubAccountRepo{current: currentUser(), avatarErr: store.ErrAvatarNotUsable}
+	tokens := testTokens(t)
+	h := newRouter(t, testDeps{account: repo, tokens: tokens})
+
+	rec := doJSON(h, withBearer(
+		req(http.MethodPut, "/api/users/me/avatar", `{"mediaId":42}`),
+		mustIssue(t, tokens, 7),
+	))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("%d が返った。400 を期待した", rec.Code)
+	}
+
+	var got struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を解釈できない: %v", err)
+	}
+	// 「他人の」「未処理の」といった内訳を漏らさない。
+	for _, leak := range []string{"他人", "処理", "使用済み"} {
+		if strings.Contains(got.Error.Message, leak) {
+			t.Fatalf("理由が漏れている: %q", got.Error.Message)
+		}
+	}
+}
+
+func TestClearAvatarIsIdempotent(t *testing.T) {
+	repo := &stubAccountRepo{current: currentUser()}
+	tokens := testTokens(t)
+	h := newRouter(t, testDeps{account: repo, tokens: tokens})
+	token := mustIssue(t, tokens, 7)
+
+	for i := range 2 {
+		rec := doJSON(h, withBearer(req(http.MethodDelete, "/api/users/me/avatar", ""), token))
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("%d回目で %d が返った。204 を期待した", i+1, rec.Code)
+		}
+	}
+	if len(repo.clearedFor) != 2 {
+		t.Fatalf("解除が %d 回。2回を期待した", len(repo.clearedFor))
+	}
+}
+
+// **アバターは1件ずつ引かない。** 一覧に並ぶ人数ぶんまとめて解決する。
+func TestAvatarUrlIsFilledInLists(t *testing.T) {
+	repo := &stubAccountRepo{
+		current:    currentUser(),
+		avatarKeys: map[uint64]string{9: "variants/9-thumb.jpg"},
+	}
+	follows := &stubFollowRepo{
+		users: testUsers(),
+		list: []domain.User{
+			{ID: 9, Handle: "other", DisplayName: "別の人"},
+			{ID: 7, Handle: "traveler", DisplayName: "たびびと"},
+		},
+	}
+	tokens := testTokens(t)
+	h := newRouter(t, testDeps{account: repo, follows: follows, tokens: tokens})
+
+	rec := doJSON(h, withBearer(
+		req(http.MethodGet, "/api/users/traveler/followers", ""),
+		mustIssue(t, tokens, 7),
+	))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d が返った。200 を期待した。body=%s", rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		Data struct {
+			Users []struct {
+				Id        int64   `json:"id"`
+				AvatarUrl *string `json:"avatarUrl"`
+			} `json:"users"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("応答を解釈できない: %v body=%s", err, rec.Body.String())
+	}
+	if got.Data.Users[0].AvatarUrl == nil {
+		t.Fatal("アバターを設定している人に avatarUrl が入っていない")
+	}
+	// **設定していない人は null のままである。** 画面は未設定を描けること。
+	if got.Data.Users[1].AvatarUrl != nil {
+		t.Fatalf("未設定の人に avatarUrl が入っている: %v", *got.Data.Users[1].AvatarUrl)
+	}
+}
+
+func TestAvatarEndpointsRequireAuthentication(t *testing.T) {
+	repo := &stubAccountRepo{}
+	h := newRouter(t, testDeps{account: repo})
+
+	for _, c := range []struct{ method, body string }{
+		{http.MethodPut, `{"mediaId":1}`},
+		{http.MethodDelete, ""},
+	} {
+		rec := doJSON(h, req(c.method, "/api/users/me/avatar", c.body))
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%s が %d を返した。401 を期待した", c.method, rec.Code)
+		}
+	}
+	if len(repo.setAvatarIDs) != 0 || len(repo.clearedFor) != 0 {
+		t.Fatal("認証なしのリクエストが repo まで到達している")
+	}
+}

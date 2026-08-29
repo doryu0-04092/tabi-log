@@ -13,6 +13,7 @@
 		type UserProfile
 	} from '$lib/api/users';
 	import { session } from '$lib/auth/session.svelte';
+	import Avatar from '$lib/components/Avatar.svelte';
 	import ConquestMap from '$lib/components/ConquestMap.svelte';
 	import FollowButton from '$lib/components/FollowButton.svelte';
 	import PostCard from '$lib/components/PostCard.svelte';
@@ -141,8 +142,11 @@
 {:else}
 	<header class="profile">
 		<div class="identity">
-			<h1>{view.profile.displayName}</h1>
-			<p class="handle">@{view.profile.handle}</p>
+			<Avatar url={view.profile.avatarUrl} displayName={view.profile.displayName} size="large" />
+			<div>
+				<h1>{view.profile.displayName}</h1>
+				<p class="handle">@{view.profile.handle}</p>
+			</div>
 		</div>
 
 		<!-- 自分自身にフォローの導線は出さない。押せない導線は迷いのもとになる。 -->
@@ -257,6 +261,12 @@
 
 	h1 {
 		margin: 0;
+	}
+
+	.identity {
+		display: flex;
+		align-items: center;
+		gap: var(--space-4);
 	}
 
 	.handle {

@@ -34,9 +34,10 @@ type ReactionRepository interface {
 }
 
 type reactionHandler struct {
-	repo   ReactionRepository
-	posts  PostRepository
-	logger *slog.Logger
+	repo    ReactionRepository
+	posts   PostRepository
+	avatars *avatarResolver
+	logger  *slog.Logger
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +129,9 @@ func (h *reactionHandler) CreateComment(w http.ResponseWriter, r *http.Request, 
 
 	// 投稿の所有者は渡さない。作成者は必ず自分であり、
 	// canDelete はその時点で true に決まる。
-	writeJSON(w, r, http.StatusCreated, toAPIComment(comment, userID, userID))
+	out := toAPIComment(comment, userID, userID)
+	h.avatars.fillOne(r.Context(), &out.Author)
+	writeJSON(w, r, http.StatusCreated, out)
 }
 
 func (h *reactionHandler) ListComments(w http.ResponseWriter, r *http.Request, postID gen.PostId, params gen.ListCommentsParams) {
@@ -179,6 +182,12 @@ func (h *reactionHandler) ListComments(w http.ResponseWriter, r *http.Request, p
 	for _, c := range comments {
 		items = append(items, toAPIComment(c, userID, owner))
 	}
+
+	authors := make([]*gen.User, 0, len(items))
+	for i := range items {
+		authors = append(authors, &items[i].Author)
+	}
+	h.avatars.fill(r.Context(), authors)
 
 	var body gen.CommentListResponse
 	body.Data.Comments = items

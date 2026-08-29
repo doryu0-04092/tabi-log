@@ -7,6 +7,7 @@
 		type Notification
 	} from '$lib/api/notifications';
 	import { session } from '$lib/auth/session.svelte';
+	import Avatar from '$lib/components/Avatar.svelte';
 
 	type State =
 		| { kind: 'loading' }
@@ -147,6 +148,7 @@
 			{#each view.items as n (n.id)}
 				<li class:unread={!n.isRead}>
 					<p class="text">
+						<Avatar url={n.actor.avatarUrl} displayName={n.actor.displayName} size="small" />
 						<!--
 							未読は色だけでなく語でも示す。色を判別しない環境でも
 							「未読」と読み上げられる。

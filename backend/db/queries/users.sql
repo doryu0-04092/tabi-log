@@ -101,3 +101,42 @@ DELETE FROM likes WHERE user_id = ?;
 
 -- name: DeleteFollowsByUser :exec
 DELETE FROM follows WHERE follower_id = ? OR followee_id = ?;
+
+-- アバターを設定する。
+--
+-- **条件が要点である。** 自分のもので、処理が完了しており、まだどの投稿にも
+-- 属していない画像だけを設定する。SELECT で確かめてから UPDATE すると、
+-- その間に別のリクエストが同じ画像を使う余地が残る。
+-- 更新件数が 0 なら条件に合わなかったということで、呼び出し側が検出する。
+--
+-- 投稿画像と同じ media を使うのは、presign → Lambda（EXIF 除去・変換）の
+-- 経路をそのまま通すためである。**アバターにも EXIF 除去が要る。**
+-- **UPDATE ... JOIN では書けない。** sqlc が JOIN 側の条件の引数を
+-- 認識せず、生成される関数から落ちる（実測）。EXISTS で書く。
+-- 副問い合わせから users.id を参照するのも「曖昧」と判断されるため、
+-- 利用者IDは2回渡す。
+-- name: SetAvatar :execresult
+UPDATE users
+SET avatar_media_id = ?
+WHERE users.id = ?
+  AND users.deleted_at IS NULL
+  AND EXISTS (
+      SELECT 1 FROM media m
+      WHERE m.id = ?
+        AND m.user_id = ?
+        AND m.post_id IS NULL
+        AND m.status = 'processed'
+  );
+
+-- アバターを外す。
+-- name: ClearAvatar :exec
+UPDATE users SET avatar_media_id = NULL WHERE id = ? AND deleted_at IS NULL;
+
+-- アバターの表示に使う変換物の鍵。
+-- 一覧で1件ずつ引かないよう、利用者IDをまとめて渡せる形にしてある。
+-- name: ListAvatarKeys :many
+SELECT u.id AS user_id, v.s3_key
+FROM users u
+JOIN media m ON m.id = u.avatar_media_id
+JOIN media_variants v ON v.media_id = m.id AND v.kind = 'thumb'
+WHERE u.id IN (sqlc.slice('user_ids'));

@@ -37,6 +37,7 @@ type userHandler struct {
 	posts   PostRepository
 	likes   ReactionRepository
 	storage ObjectStorage
+	avatars *avatarResolver
 	logger  *slog.Logger
 }
 
@@ -61,7 +62,9 @@ func (h *userHandler) GetUserProfile(w http.ResponseWriter, r *http.Request, han
 		return
 	}
 
-	writeJSON(w, r, http.StatusOK, gen.UserProfile{
+	avatar := h.avatars.urls(r.Context(), []uint64{profile.User.ID})[profile.User.ID]
+
+	out := gen.UserProfile{
 		Id:                     int64(profile.User.ID),
 		Handle:                 profile.User.Handle,
 		DisplayName:            profile.User.DisplayName,
@@ -72,7 +75,11 @@ func (h *userHandler) GetUserProfile(w http.ResponseWriter, r *http.Request, han
 		VisitedPrefectureCount: profile.VisitedPrefectureCount,
 		IsFollowing:            profile.IsFollowing,
 		IsMe:                   profile.User.ID == viewerID,
-	})
+	}
+	if avatar != "" {
+		out.AvatarUrl = &avatar
+	}
+	writeJSON(w, r, http.StatusOK, out)
 }
 
 func (h *userHandler) ListUserPosts(w http.ResponseWriter, r *http.Request, handle gen.Handle, params gen.ListUserPostsParams) {
@@ -98,7 +105,7 @@ func (h *userHandler) ListUserPosts(w http.ResponseWriter, r *http.Request, hand
 		return
 	}
 
-	writeFeedPage(w, r, h.likes, h.logger, params.Limit,
+	writeFeedPage(w, r, h.likes, h.avatars, h.logger, params.Limit,
 		func(ctx context.Context, limit int) ([]domain.Post, string, error) {
 			posts, next, err := h.posts.ListUserPosts(ctx, user.ID, cursor, limit, h.storage, displayURLTTL)
 			return posts, formatCursor(next), err
@@ -263,16 +270,23 @@ func (h *userHandler) listUsers(
 		return
 	}
 
+	avatars := h.avatars.urls(r.Context(), ids)
+
 	items := make([]gen.UserSummary, 0, len(users))
 	for _, u := range users {
-		items = append(items, gen.UserSummary{
+		item := gen.UserSummary{
 			Id:          int64(u.ID),
 			Handle:      u.Handle,
 			DisplayName: u.DisplayName,
 			Bio:         u.Bio,
 			IsFollowing: followed[u.ID],
 			IsMe:        u.ID == viewerID,
-		})
+		}
+		if url, ok := avatars[u.ID]; ok {
+			v := url
+			item.AvatarUrl = &v
+		}
+		items = append(items, item)
 	}
 
 	var body gen.UserListResponse

@@ -72,9 +72,10 @@ type postHandler struct {
 	storage ObjectStorage
 	// likes は「自分がいいねしているか」を解決するために使う。
 	// フィードでは20件分をまとめて引く（投稿ごとに問い合わせない）。
-	likes  ReactionRepository
-	logger *slog.Logger
-	now    func() time.Time
+	likes   ReactionRepository
+	avatars *avatarResolver
+	logger  *slog.Logger
+	now     func() time.Time
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +356,9 @@ func (h *postHandler) respondWithPost(w http.ResponseWriter, r *http.Request, po
 		return
 	}
 
-	writeJSON(w, r, status, toAPIPost(post, viewerID, liked[postID]))
+	out := toAPIPost(post, viewerID, liked[postID])
+	h.avatars.fillOne(r.Context(), &out.Author)
+	writeJSON(w, r, status, out)
 }
 
 func (h *postHandler) internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {
@@ -548,7 +551,7 @@ func (h *postHandler) ListPosts(w http.ResponseWriter, r *http.Request, params g
 		return
 	}
 
-	writeFeedPage(w, r, h.likes, h.logger, params.Limit,
+	writeFeedPage(w, r, h.likes, h.avatars, h.logger, params.Limit,
 		func(ctx context.Context, limit int) ([]domain.Post, string, error) {
 			posts, next, err := h.repo.ListFeed(ctx, cursor, limit, h.storage, displayURLTTL)
 			return posts, formatCursor(next), err
@@ -571,7 +574,7 @@ func (h *postHandler) ListFollowingFeed(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	writeFeedPage(w, r, h.likes, h.logger, params.Limit,
+	writeFeedPage(w, r, h.likes, h.avatars, h.logger, params.Limit,
 		func(ctx context.Context, limit int) ([]domain.Post, string, error) {
 			posts, next, err := h.repo.ListFollowingFeed(ctx, viewerID, cursor, limit, h.storage, displayURLTTL)
 			return posts, formatCursor(next), err

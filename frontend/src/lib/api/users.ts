@@ -114,3 +114,19 @@ export function listUserTravels(
 		`/users/${encodeURIComponent(handle)}/travels${query}`
 	);
 }
+
+/**
+ * アバターを設定する。
+ *
+ * **画像は投稿と同じ経路で先にアップロードする**
+ * （`uploadImage` が presign → S3 → 処理の完了待ちまで行う）。
+ * アバターにも EXIF の除去が要るため、経路を分けない。
+ */
+export function setAvatar(mediaId: number): Promise<void> {
+	return request<void>('/users/me/avatar', { method: 'PUT', body: { mediaId } });
+}
+
+/** アバターを外す。設定していなくても成功する（冪等）。 */
+export function clearAvatar(): Promise<void> {
+	return request<void>('/users/me/avatar', { method: 'DELETE' });
+}
