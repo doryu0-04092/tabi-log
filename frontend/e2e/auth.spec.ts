@@ -140,3 +140,58 @@ test.describe('認証', () => {
 		expect(results.violations).toEqual([]);
 	});
 });
+
+/*
+未ログインで開いたときに、セッションの復元を試みないこと。
+
+**印（tabilog_session）が無ければ問い合わせない。** 未ログインの人にとって
+/api/auth/refresh は必ず 401 が返る無駄な往復であり、最初の描画が
+1往復ぶん遅れるうえ、ブラウザのコンソールにエラーが残る
+（Lighthouse の「ベストプラクティス」でも指摘される）。
+*/
+test.describe('セッションの復元', () => {
+	test('未ログインで開いても復元を試みない', async ({ page }) => {
+		const attempts: string[] = [];
+		page.on('request', (r) => {
+			if (r.url().includes('/api/auth/refresh')) attempts.push(r.url());
+		});
+
+		await page.goto('/');
+		await expect(page.getByRole('link', { name: 'ログイン' }).first()).toBeVisible();
+
+		expect(attempts, '未ログインなのに復元を試みている').toEqual([]);
+	});
+
+	test('ログイン後の再読み込みでは復元を試みる', async ({ page }) => {
+		await signupWith(page, { displayName: '復元される人' });
+
+		const attempts: string[] = [];
+		page.on('request', (r) => {
+			if (r.url().includes('/api/auth/refresh')) attempts.push(r.url());
+		});
+
+		await page.reload();
+
+		// **表示名が出るまで待つ。** 「ログアウト」が見えるだけだと、
+		// 復元できたのか未ログインのままなのかを区別できない。
+		await expect(
+			page.getByRole('navigation', { name: 'アカウント' }).getByText('復元される人')
+		).toBeVisible();
+		expect(attempts.length, '再読み込みで復元を試みていない').toBeGreaterThan(0);
+	});
+
+	// **印だけが残った状態を自分で解消できること。**
+	// 印はあるのにトークンが無いと、開くたびに 401 を踏みに行くことになる。
+	test('印だけが残っていても、次からは試みなくなる', async ({ page, context }) => {
+		await page.goto('/');
+		await context.addCookies([
+			{ name: 'tabilog_session', value: '1', url: 'http://localhost:4173/' }
+		]);
+
+		await page.reload();
+		await expect(page.getByRole('link', { name: 'ログイン' }).first()).toBeVisible();
+
+		const remaining = (await context.cookies()).find((c) => c.name === 'tabilog_session');
+		expect(remaining, '印が消えていない。次に開いても同じ往復が起きる').toBeUndefined();
+	});
+});
