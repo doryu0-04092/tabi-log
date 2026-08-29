@@ -86,13 +86,26 @@ EXPLAIN による索引の使われ方。
 
 ### 1. AWS へのデプロイ
 
-`infra/` はまだ空。[AWS構成設計](aws-architecture.md) に構成は書いてあるが
-Terraform のコードは未着手。
+**Terraform のコードは書いた**（`infra/`、2026-08-29）。
+CI で `fmt` と `validate` を回している。**残っているのは適用である。**
 
-- CloudFront + S3×2 + ALB + Fargate + RDS + **画像処理 Lambda + S3イベント通知**
-- **CI に `terraform fmt -check` / `validate` のジョブを足す**
-  （現在は検証対象が無いため意図的に入れていない）
-- RDS の提供状況は確認済み（MySQL 8.4.9 / db.t4g.small / gp3 が利用可能）
+```bash
+cd infra
+cp terraform.tfvars.example terraform.tfvars   # バケット名を自分の値にする
+bash ../docker/build-imageworker.sh            # 無いと plan で落ちる
+terraform init && terraform plan
+```
+
+- **`plan` も `apply` もまだ実行していない。** データソースが実在するか、
+  引数の組み合わせを AWS が受け付けるかは未確認である
+- apply だけでは動かない。イメージの push・マイグレーション・
+  フロントエンドの配置が別に要る（`infra/README.md`）
+- **データベースはプライベートサブネットにあり、手元から直接は届かない。**
+  マイグレーションは ECS のタスクから流すか、踏み台を用意する
+
+**書く過程で設計書の穴が2つ見つかった**（aws-architecture.md の冒頭に記載）:
+Lambda から S3 への経路（ゲートウェイエンドポイントが必要）と、
+Lambda から SSM への経路（環境変数で渡す判断にした）。
 
 ### 2. 本番相当での負荷試験
 

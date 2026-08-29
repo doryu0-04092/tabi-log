@@ -1,0 +1,17 @@
+# このファイルを terraform.tfvars に写して、自分の値を入れる。
+# terraform.tfvars は .gitignore で除外している。
+
+# **S3 のバケット名は全 AWS アカウントで一意である。**
+# 他の人と衝突しない名前にすること。
+images_bucket_name = "tabilog-media-CHANGE-ME"
+static_bucket_name = "tabilog-static-CHANGE-ME"
+
+# 以下は既定値がある。変えたいときだけ書く。
+#
+# region        = "ap-northeast-1"
+# task_cpu      = 512
+# task_memory   = 1024
+# desired_count = 2
+#
+# **image_tag は latest にしない。** どの版が動いているか分からなくなる。
+# image_tag = "initial"
