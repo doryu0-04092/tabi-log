@@ -203,3 +203,143 @@ func decodeCDN(t *testing.T, s string) []byte {
 	}
 	return raw
 }
+
+/*
+AWS が公開している条件に対する検証。
+
+**この経路は apply するまで実物で確かめられない**ため、
+仕様側から取れる条件はすべてここで固定する。
+出所は CloudFront 開発者ガイドの「署名付き Cookie（カスタムポリシー）」と
+「Linux コマンドと OpenSSL」（2026-08-29 に参照）。
+*/
+
+// AWS のドキュメントに載っている例。**公式が示した入力と出力の組である。**
+// 置換（+=/ → -_~）まで含めて、こちらの実装が同じ答えを出すかを見る。
+const (
+	awsExamplePolicy = `{"Statement":[{"Resource":"http://d111111abcdef8.cloudfront.net/game_download.zip",` +
+		`"Condition":{"IpAddress":{"AWS:SourceIp":"192.0.2.0/24"},` +
+		`"DateLessThan":{"AWS:EpochTime":1426500000}}}]}`
+
+	awsExampleEncoded = "eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cDovL2QxMTExMTFhYmNkZWY4LmNsb3VkZnJvbnQubmV0" +
+		"L2dhbWVfZG93bmxvYWQuemlwIiwiQ29uZGl0aW9uIjp7IklwQWRkcmVzcyI6eyJBV1M6U291cmNlSXAiOiIxOTIu" +
+		"MC4yLjAvMjQifSwiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE0MjY1MDAwMDB9fX1dfQ__"
+)
+
+func Test符号化がAWSの例と一致する(t *testing.T) {
+	if got := cdnBase64([]byte(awsExamplePolicy)); got != awsExampleEncoded {
+		t.Errorf("AWS の例と一致しない\n実装: %s\n公式: %s", got, awsExampleEncoded)
+	}
+}
+
+/*
+ポリシーに空白を入れないこと。
+
+AWS は「ポリシーからすべての空白（タブと改行を含む）を取り除く」と定めている。
+**署名するのも符号化するのも、この空白を除いた同じバイト列でなければならない。**
+json.MarshalIndent に変えると黙って壊れるため、ここで固定する。
+*/
+func Testポリシーに空白が入らない(t *testing.T) {
+	_, pemText := testKey(t)
+	signer, _ := NewCDNSigner("d123.cloudfront.net", "K123", pemText)
+
+	cookies, err := signer.SignedCookies(time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("Cookie を作れない: %v", err)
+	}
+	raw := string(decodeCDN(t, cookieValue(cookies, "CloudFront-Policy")))
+
+	if strings.ContainsAny(raw, " \t\r\n") {
+		t.Errorf("ポリシーに空白が含まれている: %q", raw)
+	}
+}
+
+/*
+有効期限を引用符で囲まないこと。
+
+AWS は「値を引用符で囲まないこと」と明記している。
+**文字列にすると CloudFront が読めない。**
+*/
+func Test有効期限が数値として書かれる(t *testing.T) {
+	_, pemText := testKey(t)
+	signer, _ := NewCDNSigner("d123.cloudfront.net", "K123", pemText)
+
+	expires := time.Unix(1426500000, 0)
+	cookies, err := signer.SignedCookies(expires)
+	if err != nil {
+		t.Fatalf("Cookie を作れない: %v", err)
+	}
+	raw := string(decodeCDN(t, cookieValue(cookies, "CloudFront-Policy")))
+
+	if !strings.Contains(raw, `"AWS:EpochTime":1426500000`) {
+		t.Errorf("有効期限が数値になっていない: %s", raw)
+	}
+	if strings.Contains(raw, `"AWS:EpochTime":"`) {
+		t.Errorf("有効期限が文字列になっている: %s", raw)
+	}
+}
+
+/*
+Statement は1つだけ、Resource は http:// か https:// で始まること。
+
+AWS の定め:「1つの Statement しか含められない」
+「値は http:// または https:// で始まらなければならない」。
+*/
+func Testポリシーの形が仕様の制約を満たす(t *testing.T) {
+	_, pemText := testKey(t)
+	signer, _ := NewCDNSigner("d123.cloudfront.net", "K123", pemText)
+
+	cookies, err := signer.SignedCookies(time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("Cookie を作れない: %v", err)
+	}
+
+	var policy cdnPolicy
+	if err := json.Unmarshal(decodeCDN(t, cookieValue(cookies, "CloudFront-Policy")), &policy); err != nil {
+		t.Fatalf("ポリシーを読めない: %v", err)
+	}
+
+	if len(policy.Statement) != 1 {
+		t.Errorf("Statement が %d 件。1件しか含められない", len(policy.Statement))
+	}
+	resource := policy.Statement[0].Resource
+	if !strings.HasPrefix(resource, "https://") && !strings.HasPrefix(resource, "http://") {
+		t.Errorf("Resource が %q。http:// か https:// で始まる必要がある", resource)
+	}
+}
+
+/*
+Cookie の名前は大文字小文字を区別する。
+
+AWS は「Cookie の属性名は大文字小文字を区別する」と明記している。
+**綴りが1文字違うだけで、CloudFront は署名が無いものとして扱う。**
+*/
+func TestCookieの名前が仕様どおりである(t *testing.T) {
+	want := []string{"CloudFront-Policy", "CloudFront-Signature", "CloudFront-Key-Pair-Id"}
+
+	got := CDNCookieNames()
+	if len(got) != len(want) {
+		t.Fatalf("Cookie が %d 個。3個のはず", len(got))
+	}
+	for i, name := range want {
+		if got[i] != name {
+			t.Errorf("%d番目が %q。%q のはず", i, got[i], name)
+		}
+	}
+
+	// **CloudFront-Hash-Algorithm は出さない。**
+	// SHA-1 を使う場合は不要で、SHA-256 に変えたときだけ必要になる。
+	for _, name := range got {
+		if name == "CloudFront-Hash-Algorithm" {
+			t.Error("SHA-1 なのに CloudFront-Hash-Algorithm を出している")
+		}
+	}
+}
+
+func cookieValue(cookies []SignedCookie, name string) string {
+	for _, c := range cookies {
+		if c.Name == name {
+			return c.Value
+		}
+	}
+	return ""
+}

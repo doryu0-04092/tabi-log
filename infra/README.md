@@ -2,10 +2,25 @@
 
 `docs/aws-architecture.md` の構成を Terraform で書いたもの。
 
-> **状態: コードのみ。まだ適用していない。**
-> `terraform fmt` と `terraform validate` は通っているが、
-> **`plan` も `apply` も実行していない**ため、AWS が実際に受け付けるかは未確認である。
-> 適用したら、その結果をここに追記する。
+> **状態: `plan` まで通した。`apply` はしていない。**（2026-08-29）
+>
+> ```
+> Plan: 74 to add, 0 to change, 0 to destroy.
+> ```
+>
+> エラーも警告も出ていない。**AWS に問い合わせるデータソースがすべて解決した**
+> ことまでは確かめられた。
+>
+> | 確かめられたこと | 結果 |
+> |---|---|
+> | CloudFront のマネージドプレフィックスリスト | `pl-58a04531` に解決 |
+> | `/api/*` のキャッシュポリシー | CachingDisabled に解決 |
+> | `/variants/*` のキャッシュポリシー | CachingOptimizedForUncompressedObjects に解決 |
+> | 引数の組み合わせ | プロバイダの検証を通過 |
+> | 接続数の見積もり（precondition） | 通過 |
+>
+> **`apply` はしていないので、動いた記録ではない。** 実際に作れるか、
+> 作ったものが期待どおり動くかは別である。
 
 ## 何が作られるか
 
@@ -187,11 +202,11 @@ URL が変わらないので、エッジにもブラウザにも載る。
 
 ## まだ確認していないこと
 
-- **`terraform plan` を実行していない。** データソース（CloudFront の
-  マネージドプレフィックスリスト、キャッシュポリシー）が実在するか、
-  引数の組み合わせを AWS が受け付けるかは未確認である
-- **`apply` していない。** 動いた記録ではない
+- **`apply` していない。** `plan` が通ることは「作れる見込みがある」
+  ことであって、作れることでも、動くことでもない
 - **画像の CloudFront 配信は、ローカルでも E2E でも通っていない。**
-  LocalStack に CloudFront が無いためである。署名の形式が仕様どおりで
-  あることは `internal/storage/cloudfront_test.go` で固定しているが、
-  **CloudFront が実際に受け付けるかは apply して確かめるしかない**
+  LocalStack に CloudFront が無いためである。
+  仕様から取れる条件（署名の形式・ポリシーの制約・Cookie の属性）は
+  `internal/storage/cloudfront_test.go` に落としてあり、
+  **AWS が公開している符号化の例と一致することまでは確認済み**だが、
+  実際に CloudFront が受け付けるかは apply しないと分からない
