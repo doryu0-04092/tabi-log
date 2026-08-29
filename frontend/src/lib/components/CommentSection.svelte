@@ -7,6 +7,7 @@
 		type Comment
 	} from '$lib/api/reactions';
 	import Avatar from '$lib/components/Avatar.svelte';
+	import LoadMore from '$lib/components/LoadMore.svelte';
 
 	let { postId }: { postId: number } = $props();
 
@@ -182,11 +183,13 @@
 			<p class="error" role="alert"><span aria-hidden="true">✕</span> {deleteError}</p>
 		{/if}
 
-		{#if view.nextCursor}
-			<button type="button" class="more" onclick={loadMore} disabled={loadingMore}>
-				{loadingMore ? '読み込んでいます…' : '古いコメントをさらに読み込む'}
-			</button>
-		{/if}
+		<LoadMore
+			hasMore={Boolean(view.nextCursor)}
+			loading={loadingMore}
+			onLoadMore={loadMore}
+			label="古いコメントをさらに読み込む"
+			auto={false}
+		/>
 
 		<form onsubmit={submit}>
 			<!--
@@ -311,12 +314,6 @@
 		color: var(--color-accent-text);
 		background: var(--color-danger);
 		border-color: var(--color-danger);
-	}
-
-	.more {
-		width: 100%;
-		margin-top: var(--space-4);
-		background: var(--color-surface);
 	}
 
 	form {

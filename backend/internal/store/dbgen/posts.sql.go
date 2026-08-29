@@ -389,7 +389,7 @@ SELECT
     p.like_count, p.comment_count, p.created_at, p.updated_at,
     u.handle, u.display_name, u.bio,
     pref.name AS prefecture_name, pref.name_kana AS prefecture_name_kana, pref.region
-FROM posts p
+FROM posts p FORCE INDEX (ix_posts_user_id)
 JOIN users u ON u.id = p.user_id
 JOIN prefectures pref ON pref.code = p.prefecture_code
 WHERE p.user_id = ? AND p.id < ?
@@ -429,6 +429,13 @@ type ListPostsByUserBeforeRow struct {
 // 絞り込みには使えるが ORDER BY id DESC を索引の並びで解決できず、
 // EXPLAIN に Using filesort が出る（2026-08-29 に実測して確認し、
 // 000003 で索引を追加した）。投稿数の多い利用者ほど並べ替える行が増える。
+//
+// **索引を明示している。** posts には user_id で始まる索引が複数あり
+// （制覇マップ用の ix_posts_user_prefecture など）、絞り込みの効き目は
+// どれも同じに見えるため、**オプティマイザが並べ替えを解決できない側を選ぶ。**
+// 実測（2026-08-29、投稿2万件）では指定なしで Using filesort が出た。
+// 索引名との結びつきが生まれるが、消したときに黙って遅くなるのではなく
+// 問い合わせが失敗する形になるので、気づけるほうを採る。
 func (q *Queries) ListPostsByUserBefore(ctx context.Context, arg ListPostsByUserBeforeParams) ([]ListPostsByUserBeforeRow, error) {
 	rows, err := q.db.QueryContext(ctx, listPostsByUserBefore, arg.UserID, arg.ID, arg.Limit)
 	if err != nil {

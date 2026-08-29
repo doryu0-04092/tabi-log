@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import LoadMore from '$lib/components/LoadMore.svelte';
 	import { ApiError } from '$lib/api/client';
 	import type { UserSummary } from '$lib/api/users';
 	import Avatar from '$lib/components/Avatar.svelte';
@@ -107,11 +108,12 @@
 		{/each}
 	</ul>
 
-	{#if view.nextCursor}
-		<button type="button" onclick={loadMore} disabled={loadingMore}>
-			{loadingMore ? '読み込んでいます…' : 'さらに読み込む'}
-		</button>
-	{/if}
+	<LoadMore
+		hasMore={Boolean(view.nextCursor)}
+		loading={loadingMore}
+		onLoadMore={loadMore}
+		label="さらに読み込む"
+	/>
 {/if}
 
 <style>
@@ -165,24 +167,6 @@
 	.handle {
 		color: var(--color-text-muted);
 		font-size: 0.875rem;
-	}
-
-	button {
-		display: block;
-		width: 100%;
-		min-height: 2.75rem;
-		margin-top: var(--space-6);
-		padding: var(--space-3);
-		font: inherit;
-		color: var(--color-text);
-		background: var(--color-surface);
-		border: var(--line);
-		border-radius: var(--radius);
-		cursor: pointer;
-	}
-
-	button:disabled {
-		cursor: progress;
 	}
 
 	.error {

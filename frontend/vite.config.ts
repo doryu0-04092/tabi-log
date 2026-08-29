@@ -4,7 +4,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 // defineConfig は 'vite' ではなく 'vitest/config' から取る。
 import { defineConfig } from 'vitest/config';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
 	plugins: [
 		sveltekit({
 			compilerOptions: {
@@ -46,8 +46,13 @@ export default defineConfig({
 		proxy: { '/api': { target: 'http://localhost:8080', changeOrigin: false } }
 	},
 
+	// **テストではブラウザ向けの実装を読ませる。**
+	// これが無いと Svelte がサーバー用の実装を返し、
+	// コンポーネントを組み立てられない（mount が使えない）。
+	resolve: { conditions: mode === 'test' ? ['browser'] : [] },
+
 	test: {
 		environment: 'jsdom',
 		include: ['src/**/*.{test,spec}.{js,ts}']
 	}
-});
+}));

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import LoadMore from '$lib/components/LoadMore.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -269,11 +270,12 @@
 						<li><PostCard {post} /></li>
 					{/each}
 				</ul>
-				{#if results.nextCursor}
-					<button type="button" class="more" onclick={loadMore} disabled={loadingMore}>
-						{loadingMore ? '読み込んでいます…' : 'さらに読み込む'}
-					</button>
-				{/if}
+				<LoadMore
+					hasMore={Boolean(results.nextCursor)}
+					loading={loadingMore}
+					onLoadMore={loadMore}
+					label="さらに読み込む"
+				/>
 			{/if}
 		{:else if results.users.length === 0}
 			<p class="empty">条件に合う利用者は見つかりませんでした。</p>
@@ -296,11 +298,12 @@
 					</li>
 				{/each}
 			</ul>
-			{#if results.nextCursor}
-				<button type="button" class="more" onclick={loadMore} disabled={loadingMore}>
-					{loadingMore ? '読み込んでいます…' : 'さらに読み込む'}
-				</button>
-			{/if}
+			<LoadMore
+				hasMore={Boolean(results.nextCursor)}
+				loading={loadingMore}
+				onLoadMore={loadMore}
+				label="さらに読み込む"
+			/>
 		{/if}
 	</section>
 
@@ -446,24 +449,6 @@
 	.handle {
 		color: var(--color-text-muted);
 		font-size: 0.875rem;
-	}
-
-	.more {
-		display: block;
-		width: 100%;
-		min-height: 2.75rem;
-		margin-top: var(--space-6);
-		padding: var(--space-3);
-		font: inherit;
-		color: var(--color-text);
-		background: var(--color-surface);
-		border: var(--line);
-		border-radius: var(--radius);
-		cursor: pointer;
-	}
-
-	.more:disabled {
-		cursor: progress;
 	}
 
 	.error {

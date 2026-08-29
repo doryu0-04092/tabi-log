@@ -92,7 +92,7 @@ SELECT
     n.id, n.type, n.post_id, n.comment_id, n.read_at, n.created_at,
     u.id AS actor_id, u.handle, u.display_name, u.bio,
     c.body AS comment_body
-FROM notifications n
+FROM notifications n FORCE INDEX (ix_notifications_user_id)
 JOIN users u ON u.id = n.actor_id
 LEFT JOIN comments c ON c.id = n.comment_id
 WHERE n.user_id = ? AND n.id < ?
@@ -121,6 +121,12 @@ type ListNotificationsBeforeRow struct {
 }
 
 // 通知の一覧。新しい順。カーソルは id のみ（フィードと同じ考え方）。
+// **索引を明示している。** notifications には user_id で始まる索引が
+// 2本ある（ix_notifications_user_id と、未読数のための
+// ix_notifications_user_read）。絞り込みの効き目は同じに見えるため、
+// **オプティマイザが並べ替えを解決できない側（user_read）を選ぶ。**
+// 実測（2026-08-29、通知2万件）では指定なしで Using filesort が出た。
+// ix_notifications_user_read は未読数の問い合わせに要るので落とせない。
 func (q *Queries) ListNotificationsBefore(ctx context.Context, arg ListNotificationsBeforeParams) ([]ListNotificationsBeforeRow, error) {
 	rows, err := q.db.QueryContext(ctx, listNotificationsBefore, arg.UserID, arg.ID, arg.Limit)
 	if err != nil {

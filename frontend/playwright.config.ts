@@ -11,7 +11,13 @@ export default defineConfig({
 	reporter: process.env.CI ? 'list' : 'html',
 	use: {
 		baseURL: 'http://localhost:4173',
-		trace: 'on-first-retry'
+		trace: 'on-first-retry',
+		// **失敗したものは必ず証跡を残す。** 落ちた理由は後から
+		// 実行し直しても再現しないことがあり、その場の画面と操作の
+		// 記録が無いと原因に辿り着けない。
+		// 成功した分まで残すと CI の成果物が無駄に膨らむので失敗時だけにする。
+		screenshot: 'only-on-failure',
+		video: 'retain-on-failure'
 	},
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 

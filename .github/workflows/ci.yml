@@ -50,6 +50,60 @@ jobs:
         working-directory: backend
         run: go build ./...
 
+  database:
+    name: データベースを使うテスト（Go）
+    runs-on: ubuntu-latest
+    # **実際の MySQL に対して SQL を流すテスト。**
+    # store と search に書いてあるのは Go のロジックではなく SQL であり、
+    # 偽の実装を相手にすると「Go の呼び出しが通ること」しか確認できない。
+    # 実行計画（索引で ORDER BY まで解決できているか）も、
+    # 実際に EXPLAIN を取るしか確かめようがない。
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: 環境変数を用意する
+        run: cp .env.example .env
+
+      - name: MySQL を起動する
+        run: docker compose up -d --wait mysql
+
+      # 開発用とは別のデータベースを使う。
+      # テストは各ケースの前に全テーブルを空にするため、
+      # 取り違えると開発用のデータが消える（テスト側でも名前を検査している）。
+      - name: テスト用のデータベースを作る
+        run: |
+          docker compose exec -T mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "
+            CREATE DATABASE IF NOT EXISTS tabilog_test
+              CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+            GRANT ALL ON tabilog_test.* TO \"tabilog\"@\"%\";
+            FLUSH PRIVILEGES;"'
+
+      # **スキーマの用意にマイグレーションをそのまま使う。**
+      # テスト側で CREATE TABLE を書くと本番と二重管理になる。
+      - name: マイグレーションを適用する
+        run: DB_NAME=tabilog_test docker compose run --rm migrate up
+
+      # **-p 1 でパッケージを直列に回す。** 既定では別パッケージの
+      # テストが同時に走るが、どちらも同じデータベースを空にしてから
+      # 使うため、互いのデータを消し合う。実際に CI で
+      # 「入れたはずの利用者が居ない」形で表面化した。
+      - name: データベースを使うテスト
+        working-directory: backend
+        env:
+          TEST_DB_DSN: tabilog:change_me_local_only@tcp(127.0.0.1:3306)/tabilog_test?parseTime=true&loc=UTC&multiStatements=true
+          # 用意した側が名乗る。これが立っていて DSN が無ければ失敗する
+          # （黙って飛ばして緑になるのを防ぐ）。
+          TEST_DB_REQUIRED: "1"
+        run: go test -count=1 -p 1 ./internal/store/... ./internal/search/...
+
+      - name: 失敗時のログ
+        if: failure()
+        run: docker compose logs --no-color mysql
+
   vulnerabilities:
     name: 脆弱性検査
     runs-on: ubuntu-latest
@@ -231,11 +285,17 @@ jobs:
         if: failure()
         run: docker compose logs --no-color
 
+      # **失敗したものは証跡ごと残す。** レポートに加えて
+      # スクリーンショットと動画（test-results/ に出る）も上げる。
+      # 落ちた理由は実行し直しても再現しないことがあり、
+      # その場の画面が無いと原因に辿り着けない。
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
-          path: frontend/playwright-report/
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
           retention-days: 7
 
 # インフラの検証ジョブ（terraform fmt -check / validate）は infra/ に
