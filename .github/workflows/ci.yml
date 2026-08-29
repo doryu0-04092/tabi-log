@@ -314,6 +314,19 @@ jobs:
           # 出力に色付けの制御文字が混ざると読みにくいので切る。
           terraform_wrapper: false
 
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      # **成果物が無いと validate の時点で落ちる。**
+      # lambda.tf が filebase64sha256 で zip を読むため、
+      # ファイルが実在しないと関数呼び出しに失敗する。
+      # 生成物はリポジトリに置いていないので、ここで作る。
+      # 作れること自体も確認になる。
+      - name: 画像処理 Lambda をビルドする
+        run: bash docker/build-imageworker.sh
+
       - name: 書式
         working-directory: infra
         run: terraform fmt -check -recursive -diff
