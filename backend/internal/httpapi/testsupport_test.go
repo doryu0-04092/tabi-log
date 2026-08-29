@@ -69,6 +69,10 @@ type testDeps struct {
 	// **上限そのものを見るテストだけがここを絞る。**
 	postCreateLimit    int
 	commentCreateLimit int
+
+	// cdn は画像配信の署名付き Cookie を発行する係。
+	// **nil なら Cookie を置かない**（ローカルと同じ状態）。
+	cdn *storage.CDNSigner
 }
 
 func newRouter(t *testing.T, d testDeps) http.Handler {
@@ -134,6 +138,8 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 		// **書き込みの上限はテストでは緩めておく。** 上限そのものを
 		// 見るテストは、上限を絞った専用の構成で確かめる（writelimit_test.go）。
 		// ここを既定のままにすると、無関係なテストが 429 で落ちる。
+		CDNCookies:         d.cdn,
+		CDNCookieTTL:       24 * time.Hour,
 		PostCreateLimit:    d.postCreateLimit,
 		CommentCreateLimit: d.commentCreateLimit,
 		WriteLimitWindow:   time.Hour,
@@ -610,7 +616,7 @@ type stubStorage struct {
 	deleteErr error
 }
 
-func (s *stubStorage) PresignGet(_ context.Context, key string, _ time.Duration) (string, error) {
+func (s *stubStorage) DisplayURL(_ context.Context, key string, _ time.Duration) (string, error) {
 	return "https://example.test/" + key, nil
 }
 

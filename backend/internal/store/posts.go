@@ -331,7 +331,7 @@ func signVariants(ctx context.Context, signer storage.URLSigner, keys map[string
 		if !ok {
 			continue
 		}
-		url, err := signer.PresignGet(ctx, key, ttl)
+		url, err := signer.DisplayURL(ctx, key, ttl)
 		if err != nil {
 			return "", "", fmt.Errorf("%s の表示用URLを発行できない: %w", kind, err)
 		}

@@ -106,7 +106,7 @@ func (s *S3Storage) PresignPut(ctx context.Context, key, contentType string, con
 	return req.URL, nil
 }
 
-func (s *S3Storage) PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error) {
+func (s *S3Storage) DisplayURL(ctx context.Context, key string, ttl time.Duration) (string, error) {
 	req, err := s.presigner.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),

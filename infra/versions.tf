@@ -11,6 +11,11 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    # 画像配信の署名付き Cookie 用の RSA 鍵ペアを作る。
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 
   # **state はローカルのまま置く。**

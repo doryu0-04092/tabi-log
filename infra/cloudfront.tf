@@ -20,6 +20,13 @@ resource "aws_cloudfront_origin_access_control" "static" {
   signing_protocol                  = "sigv4"
 }
 
+resource "aws_cloudfront_origin_access_control" "images" {
+  name                              = "${var.project}-images"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
 # ---------------------------------------------------------------------------
 # キャッシュとリクエストのポリシー
 # ---------------------------------------------------------------------------
@@ -55,6 +62,13 @@ resource "aws_cloudfront_distribution" "main" {
     origin_id                = "static"
     domain_name              = aws_s3_bucket.static.bucket_regional_domain_name
     origin_access_control_id = aws_cloudfront_origin_access_control.static.id
+  }
+
+  # --- オリジン: 画像（S3） ---------------------------------------------
+  origin {
+    origin_id                = "images"
+    domain_name              = aws_s3_bucket.images.bucket_regional_domain_name
+    origin_access_control_id = aws_cloudfront_origin_access_control.images.id
   }
 
   # --- オリジン: API（ALB） --------------------------------------------
@@ -117,6 +131,35 @@ resource "aws_cloudfront_distribution" "main" {
     compress = true
   }
 
+  # --- /variants/*: 投稿画像 --------------------------------------------
+  #
+  # **ここがこの構成の主目的である。**
+  #
+  # 以前は S3 の署名付き URL を返していた。署名付き URL は呼ぶたびに
+  # 署名と時刻が変わるため、**同じ画像でも毎回別の URL** になり、
+  # エッジのキャッシュもブラウザのキャッシュも一度も当たらなかった。
+  # 画像が主役のサービスで、転送量の9割以上を占める経路である。
+  #
+  # URL を /variants/<鍵> に固定し、**読む権利は署名付き Cookie に移した。**
+  # URL が変わらないので、エッジにもブラウザにも載る。
+  ordered_cache_behavior {
+    path_pattern           = "/variants/*"
+    target_origin_id       = "images"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+
+    # 変換物は一度作られたら中身が変わらない。長く持たせて安全である。
+    cache_policy_id = data.aws_cloudfront_cache_policy.optimized.id
+
+    # **Cookie を持つ者だけに配る。**
+    # これが無いと、URL を知っている全員が読めることになる。
+    trusted_key_groups = [aws_cloudfront_key_group.cdn.id]
+
+    # 画像は既に圧縮済みで、再圧縮しても縮まない。
+    compress = false
+  }
+
   # --- SPA のディープリンク ---------------------------------------------
   #
   # /posts/123 のような URL は S3 に存在しない。403 が返るため、
@@ -157,21 +200,14 @@ resource "aws_cloudfront_distribution" "main" {
 # 画像の配信について
 # ---------------------------------------------------------------------------
 
-# **/images/* の振る舞いは作っていない。**
+# **アップロードは CloudFront を通らない。**
 #
-# 設計書（docs/aws-architecture.md）には CloudFront の署名付き Cookie で
-# 画像を配る構成が書いてあるが、**アプリケーションは現在 S3 の署名付き URL を
-# 返している**（internal/storage/s3.go の PresignGet）。
-# 画面は S3 のドメインを直接指すため、CloudFront の経路を作っても
-# 誰も通らない。**使われない設定を置くと、動いているつもりの構成が残る。**
+# ブラウザは S3 の署名付き URL へ直接 PUT する（バックエンドの帯域と
+# タイムアウトを消費しないため）。CloudFront は読む側だけを担う。
+# 画像バケットの CORS が PUT だけを許しているのはそのためである。
 #
-# 署名付き Cookie に移すなら、必要なのは Terraform だけではない。
+# **originals/ は CloudFront から読めない。**
 #
-#   1. アプリケーション: PresignGet を CloudFront の URL 生成に差し替え、
-#      ログイン時に署名付き Cookie を発行する
-#   2. Terraform: 画像バケットへの OAC、公開鍵とキーグループ、
-#      /images/* の振る舞い、CDN_PRIVATE_KEY の Parameter Store 登録
-#
-# **どちらが良いかは配信量で決まる。** 署名付き URL は毎回 S3 から出るため
-# 転送量がそのまま課金になる。CloudFront を通せばエッジで効く。
-# 現時点では利用者がいないので、先に作る理由が無い。
+# ビヘイビアが /variants/* しか無く、バケットポリシーも variants/ 配下しか
+# 許していない。二重に絞っているのは、**変換前の画像に EXIF（GPS 座標）が
+# 残っている**ためである。片方だけでは、もう片方を緩めたときに気づけない。

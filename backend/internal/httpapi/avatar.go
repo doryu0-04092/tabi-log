@@ -102,7 +102,7 @@ func (a *avatarResolver) urls(ctx context.Context, userIDs []uint64) map[uint64]
 
 	out := make(map[uint64]string, len(keys))
 	for id, key := range keys {
-		url, err := a.storage.PresignGet(ctx, key, displayURLTTL)
+		url, err := a.storage.DisplayURL(ctx, key, displayURLTTL)
 		if err != nil {
 			a.logger.ErrorContext(ctx, "アバターのURLを作れない",
 				slog.Uint64("user_id", id), slog.String("error", err.Error()))

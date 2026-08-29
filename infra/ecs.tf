@@ -104,6 +104,14 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "STORAGE_S3_BUCKET", value = aws_s3_bucket.images.id },
       { name = "STORAGE_S3_REGION", value = var.region },
 
+      # **画像は CloudFront から配る。**
+      # この3つが揃うと、表示用 URL が署名付き URL から
+      # https://<配信ドメイン>/variants/<鍵> に変わり、
+      # 読む権利は署名付き Cookie が持つようになる。
+      # 揃っていないとアプリが起動時に落ちる（設定漏れを黙って見逃さない）。
+      { name = "CDN_DOMAIN", value = aws_cloudfront_distribution.main.domain_name },
+      { name = "CDN_KEY_PAIR_ID", value = aws_cloudfront_public_key.cdn.id },
+
       # **HTTPS でのみ Cookie を送らせる。** CloudFront が終端しており、
       # 利用者との間は常に HTTPS である。
       { name = "COOKIE_SECURE", value = "true" },
@@ -117,6 +125,7 @@ resource "aws_ecs_task_definition" "backend" {
     secrets = [
       { name = "DB_PASSWORD", valueFrom = aws_ssm_parameter.db_password.arn },
       { name = "JWT_SECRET", valueFrom = aws_ssm_parameter.jwt_secret.arn },
+      { name = "CDN_PRIVATE_KEY", valueFrom = aws_ssm_parameter.cdn_private_key.arn },
     ]
 
     logConfiguration = {

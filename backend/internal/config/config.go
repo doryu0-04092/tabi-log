@@ -6,6 +6,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -41,6 +42,44 @@ type StorageConfig struct {
 	// PublicEndpoint は署名付き URL に使うアドレス。ローカルのみ設定する。
 	// 詳細は storage.S3Config を参照。
 	PublicEndpoint string
+
+	// CDN は画像を CloudFront から配るための設定。
+	//
+	// **空なら S3 の署名付き URL で配る。** ローカルと LocalStack には
+	// CloudFront が無いため、そちらは今までどおり動かす必要がある。
+	// 「設定があれば CDN、無ければ S3」という分岐は1か所（cmd/server）に閉じる。
+	CDN CDNConfig
+}
+
+// CDNConfig は CloudFront 経由の配信に必要な3点。
+//
+// **3つとも揃って初めて有効になる。** 一部だけ設定された状態は
+// 設定漏れであり、黙って S3 に落ちると「CDN にしたつもりが効いていない」
+// という気づけない状態になる。Load() で弾く。
+type CDNConfig struct {
+	// Domain は配信ドメイン（例 d111111abcdef8.cloudfront.net）。
+	Domain string
+	// KeyPairID は CloudFront に登録した公開鍵の ID。
+	KeyPairID string
+	// PrivateKey は上と対になる秘密鍵（PEM）。
+	// 本番では SSM Parameter Store の SecureString から注入する。
+	PrivateKey string
+	// CookieTTL は署名付き Cookie の有効期間。
+	//
+	// **アクセストークンの再取得のたびに置き直される**ため、
+	// 使い続けている限り切れない。長くしすぎると、漏れたときに
+	// 有効な期間が延びるだけである。
+	CookieTTL time.Duration
+}
+
+// Enabled は CloudFront 経由で配るかどうかを返す。
+func (c CDNConfig) Enabled() bool {
+	return c.Domain != "" || c.KeyPairID != "" || c.PrivateKey != ""
+}
+
+// Complete は3点が揃っているかを返す。
+func (c CDNConfig) Complete() bool {
+	return c.Domain != "" && c.KeyPairID != "" && c.PrivateKey != ""
 }
 
 // AuthConfig は認証まわりの設定を表す。
@@ -168,6 +207,12 @@ func Load() (Config, error) {
 			Region:         envString("STORAGE_S3_REGION", "ap-northeast-1"),
 			Endpoint:       envString("STORAGE_S3_ENDPOINT", ""),
 			PublicEndpoint: envString("STORAGE_S3_PUBLIC_ENDPOINT", ""),
+			CDN: CDNConfig{
+				Domain:     envString("CDN_DOMAIN", ""),
+				KeyPairID:  envString("CDN_KEY_PAIR_ID", ""),
+				PrivateKey: envString("CDN_PRIVATE_KEY", ""),
+				CookieTTL:  envDuration("CDN_COOKIE_TTL", 24*time.Hour),
+			},
 		},
 	}
 
@@ -186,6 +231,14 @@ func Load() (Config, error) {
 	}
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("必須の環境変数が設定されていない: %s", strings.Join(missing, ", "))
+	}
+
+	// **設定が中途半端なまま起動させない。**
+	// 一部だけ設定された状態で S3 に落ちると、「CDN にしたつもりが
+	// 効いていない」という、動いてしまうぶん気づけない状態になる。
+	if cfg.Storage.CDN.Enabled() && !cfg.Storage.CDN.Complete() {
+		return Config{}, errors.New(
+			"CDN_DOMAIN・CDN_KEY_PAIR_ID・CDN_PRIVATE_KEY は3つとも設定するか、3つとも空にすること")
 	}
 
 	// 短い署名鍵は総当たりで復元されうる。HS256 の出力は 256 ビットなので、

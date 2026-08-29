@@ -61,7 +61,7 @@ func run() error {
 		return fmt.Errorf("トークンサービスを初期化できない: %w", err)
 	}
 
-	objectStorage, err := storage.NewS3Storage(ctx, storage.S3Config{
+	s3Storage, err := storage.NewS3Storage(ctx, storage.S3Config{
 		Bucket:         cfg.Storage.Bucket,
 		Region:         cfg.Storage.Region,
 		Endpoint:       cfg.Storage.Endpoint,
@@ -70,6 +70,31 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("画像の保存先を初期化できない: %w", err)
 	}
+
+	// **保存と配信を分ける。**
+	//
+	// アップロードと削除は必ず S3 を直接叩く。配信だけは、設定があれば
+	// CloudFront に切り替える。切り替えの判断はここ1か所に閉じており、
+	// store と httpapi は「表示用 URL を作れるもの」としか見ていない。
+	//
+	// ローカルと LocalStack には CloudFront が無いため、
+	// 設定が空なら今までどおり S3 の署名付き URL で配る。
+	var cdnSigner *storage.CDNSigner
+	displayURLs := storage.URLSigner(s3Storage)
+	if cfg.Storage.CDN.Complete() {
+		cdnSigner, err = storage.NewCDNSigner(
+			cfg.Storage.CDN.Domain, cfg.Storage.CDN.KeyPairID, cfg.Storage.CDN.PrivateKey)
+		if err != nil {
+			return fmt.Errorf("画像配信の署名鍵を読み込めない: %w", err)
+		}
+		displayURLs = cdnSigner
+		logger.Info("画像は CloudFront から配る", slog.String("domain", cfg.Storage.CDN.Domain))
+	} else {
+		// **黙って S3 に落ちないよう、どちらで動いているかを残す。**
+		logger.Info("画像は S3 の署名付き URL で配る（CDN の設定なし）")
+	}
+
+	objectStorage := mediaStorage{S3Storage: s3Storage, display: displayURLs}
 
 	handler := httpapi.NewRouter(httpapi.Deps{
 		DB:            db,
@@ -82,6 +107,8 @@ func run() error {
 		Notifications: store.NewNotificationStore(db),
 		Account:       store.NewAccountStore(db),
 		Storage:       objectStorage,
+		CDNCookies:    cdnSigner,
+		CDNCookieTTL:  cfg.Storage.CDN.CookieTTL,
 		TokenIssuer:   tokens,
 		TokenVerifier: tokens,
 		AuthOptions: httpapi.AuthOptions{
@@ -160,4 +187,18 @@ func newLogger(level string) *slog.Logger {
 	}
 
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lv}))
+}
+
+// mediaStorage は保存（S3）と配信（S3 または CloudFront）を組み合わせる。
+//
+// **アップロードと削除は S3 でしか行えない。** CloudFront は読むためのものである。
+// 埋め込みで S3Storage の PresignPut と Delete をそのまま使い、
+// 表示用 URL だけを差し替える。
+type mediaStorage struct {
+	*storage.S3Storage
+	display storage.URLSigner
+}
+
+func (m mediaStorage) DisplayURL(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	return m.display.DisplayURL(ctx, key, ttl)
 }
