@@ -5,6 +5,7 @@
 	import { ApiError } from '$lib/api/client';
 	import { deletePost, getPost, type Post } from '$lib/api/posts';
 	import { session } from '$lib/auth/session.svelte';
+	import CommentSection from '$lib/components/CommentSection.svelte';
 	import PostCard from '$lib/components/PostCard.svelte';
 
 	type State =
@@ -73,6 +74,8 @@
 	</nav>
 
 	<PostCard post={view.post} linkToDetail={false} />
+
+	<CommentSection postId={view.post.id} />
 
 	{#if isMine}
 		<div class="owner-actions">

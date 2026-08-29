@@ -75,6 +75,7 @@ func run() error {
 		Prefectures:   store.NewPrefectureStore(db),
 		Auth:          store.NewAuthStore(db),
 		Posts:         store.NewPostStore(db),
+		Reactions:     store.NewReactionStore(db),
 		Storage:       objectStorage,
 		TokenIssuer:   tokens,
 		TokenVerifier: tokens,

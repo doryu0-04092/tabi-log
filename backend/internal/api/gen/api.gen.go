@@ -206,6 +206,41 @@ type AuthResponse struct {
 	} `json:"data"`
 }
 
+// Comment defines model for Comment.
+type Comment struct {
+	// Author 公開してよい利用者情報のみを含む。メールアドレスは含めない
+	Author User   `json:"author"`
+	Body   string `json:"body"`
+
+	// CanDelete このコメントを削除できるか。**表示の出し分けのためだけに使う。**
+	//
+	// 権限そのものはサーバー側で判定しており、この値を書き換えても
+	// 削除はできない。画面がボタンを出すかどうかを決めるための情報である。
+	CanDelete bool      `json:"canDelete"`
+	CreatedAt time.Time `json:"createdAt"`
+	Id        int64     `json:"id"`
+}
+
+// CommentListResponse defines model for CommentListResponse.
+type CommentListResponse struct {
+	Data struct {
+		Comments []Comment `json:"comments"`
+
+		// NextCursor 次のページを取るときに `cursor` として渡す。これ以上無い場合は null
+		NextCursor *string `json:"nextCursor,omitempty"`
+	} `json:"data"`
+}
+
+// CommentResponse defines model for CommentResponse.
+type CommentResponse struct {
+	Data Comment `json:"data"`
+}
+
+// CreateCommentRequest defines model for CreateCommentRequest.
+type CreateCommentRequest struct {
+	Body string `json:"body"`
+}
+
 // CreatePostRequest defines model for CreatePostRequest.
 type CreatePostRequest struct {
 	Body  string           `json:"body"`
@@ -305,18 +340,30 @@ type MediaStatusResponseDataStatus string
 // Post defines model for Post.
 type Post struct {
 	// Author 公開してよい利用者情報のみを含む。メールアドレスは含めない
-	Author       User               `json:"author"`
-	Body         string             `json:"body"`
-	CommentCount int                `json:"commentCount"`
-	CreatedAt    time.Time          `json:"createdAt"`
-	Id           int64              `json:"id"`
-	LikeCount    int                `json:"likeCount"`
-	Media        []Media            `json:"media"`
-	Prefecture   Prefecture         `json:"prefecture"`
-	SpotName     *string            `json:"spotName,omitempty"`
-	Tags         []string           `json:"tags"`
-	UpdatedAt    *time.Time         `json:"updatedAt,omitempty"`
-	VisitedOn    openapi_types.Date `json:"visitedOn"`
+	Author User   `json:"author"`
+	Body   string `json:"body"`
+
+	// CanDelete この投稿を削除できるか。**表示の出し分けのためだけに使う。**
+	// 権限はサーバー側で判定しており、この値を書き換えても削除はできない。
+	CanDelete    bool      `json:"canDelete"`
+	CommentCount int       `json:"commentCount"`
+	CreatedAt    time.Time `json:"createdAt"`
+	Id           int64     `json:"id"`
+
+	// IsLiked **この投稿に自分がいいねしているか。**
+	//
+	// フィードでは表示する20件それぞれについて必要になる。
+	// 投稿ごとに問い合わせると N+1 になるため、
+	// `likes` の主キーを `(user_id, post_id)` の順にしてあり、
+	// `WHERE user_id = ? AND post_id IN (...)` の1クエリで解決する。
+	IsLiked    bool               `json:"isLiked"`
+	LikeCount  int                `json:"likeCount"`
+	Media      []Media            `json:"media"`
+	Prefecture Prefecture         `json:"prefecture"`
+	SpotName   *string            `json:"spotName,omitempty"`
+	Tags       []string           `json:"tags"`
+	UpdatedAt  *time.Time         `json:"updatedAt,omitempty"`
+	VisitedOn  openapi_types.Date `json:"visitedOn"`
 }
 
 // PostListResponse defines model for PostListResponse.
@@ -530,6 +577,13 @@ type ListPostsParams struct {
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListCommentsParams defines parameters for ListComments.
+type ListCommentsParams struct {
+	// Cursor 前回の応答の `nextCursor`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -544,6 +598,9 @@ type CreatePostJSONRequestBody = CreatePostRequest
 
 // UpdatePostJSONRequestBody defines body for UpdatePost for application/json ContentType.
 type UpdatePostJSONRequestBody = UpdatePostRequest
+
+// CreateCommentJSONRequestBody defines body for CreateComment for application/json ContentType.
+type CreateCommentJSONRequestBody = CreateCommentRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -562,6 +619,9 @@ type ServerInterface interface {
 	// Signup アカウントの作成
 	// (POST /auth/signup)
 	Signup(w http.ResponseWriter, r *http.Request)
+	// DeleteComment コメントを削除する
+	// (DELETE /comments/{commentId})
+	DeleteComment(w http.ResponseWriter, r *http.Request, commentId int64)
 	// GetLivez プロセスの生存確認
 	// (GET /livez)
 	GetLivez(w http.ResponseWriter, r *http.Request)
@@ -586,6 +646,18 @@ type ServerInterface interface {
 	// UpdatePost 投稿を編集する
 	// (PATCH /posts/{postId})
 	UpdatePost(w http.ResponseWriter, r *http.Request, postId PostId)
+	// ListComments コメントの一覧
+	// (GET /posts/{postId}/comments)
+	ListComments(w http.ResponseWriter, r *http.Request, postId PostId, params ListCommentsParams)
+	// CreateComment コメントする
+	// (POST /posts/{postId}/comments)
+	CreateComment(w http.ResponseWriter, r *http.Request, postId PostId)
+	// UnlikePost いいねを取り消す
+	// (DELETE /posts/{postId}/likes)
+	UnlikePost(w http.ResponseWriter, r *http.Request, postId PostId)
+	// LikePost いいねする
+	// (PUT /posts/{postId}/likes)
+	LikePost(w http.ResponseWriter, r *http.Request, postId PostId)
 	// ListPrefectures 都道府県マスタの一覧
 	// (GET /prefectures)
 	ListPrefectures(w http.ResponseWriter, r *http.Request)
@@ -726,6 +798,32 @@ func (siw *ServerInterfaceWrapper) Signup(w http.ResponseWriter, r *http.Request
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Signup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteComment operation middleware
+func (siw *ServerInterfaceWrapper) DeleteComment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "commentId" -------------
+	var commentId int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "commentId", r.PathValue("commentId"), &commentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "commentId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteComment(w, r, commentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -927,6 +1025,139 @@ func (siw *ServerInterfaceWrapper) UpdatePost(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// ListComments operation middleware
+func (siw *ServerInterfaceWrapper) ListComments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "postId" -------------
+	var postId PostId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "postId", r.PathValue("postId"), &postId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "postId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCommentsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListComments(w, r, postId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateComment operation middleware
+func (siw *ServerInterfaceWrapper) CreateComment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "postId" -------------
+	var postId PostId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "postId", r.PathValue("postId"), &postId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "postId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateComment(w, r, postId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnlikePost operation middleware
+func (siw *ServerInterfaceWrapper) UnlikePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "postId" -------------
+	var postId PostId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "postId", r.PathValue("postId"), &postId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "postId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnlikePost(w, r, postId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LikePost operation middleware
+func (siw *ServerInterfaceWrapper) LikePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "postId" -------------
+	var postId PostId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "postId", r.PathValue("postId"), &postId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "postId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LikePost(w, r, postId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListPrefectures operation middleware
 func (siw *ServerInterfaceWrapper) ListPrefectures(w http.ResponseWriter, r *http.Request) {
 
@@ -1084,6 +1315,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/media/{mediaId}", wrapper.GetMediaStatus)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/posts", wrapper.ListPosts)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/posts", wrapper.CreatePost)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/posts/{postId}/likes", wrapper.UnlikePost)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/posts/{postId}/likes", wrapper.LikePost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/posts/{postId}/comments", wrapper.ListComments)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/posts/{postId}/comments", wrapper.CreateComment)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/comments/{commentId}", wrapper.DeleteComment)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/posts/{postId}", wrapper.DeletePost)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/posts/{postId}", wrapper.GetPost)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/posts/{postId}", wrapper.UpdatePost)

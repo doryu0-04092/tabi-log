@@ -1,53 +1,11 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { createPost, signup } from './fixtures/app';
 import { PNG } from './fixtures/png';
-
-/** テストごとに衝突しない識別子を作る。 */
-function unique() {
-	const n = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
-	return { email: `p${n}@example.test`, handle: `p_${n}`.slice(0, 30), password: 'password12345' };
-}
-
-async function signup(page: Page, displayName = 'たびびと') {
-	const user = unique();
-	await page.goto('/signup');
-	await page.getByLabel('メールアドレス').fill(user.email);
-	await page.getByLabel('ハンドル').fill(user.handle);
-	await page.getByLabel('表示名').fill(displayName);
-	await page.getByLabel('パスワード').fill(user.password);
-	await page.getByRole('button', { name: '登録する' }).click();
-	await expect(page.getByRole('button', { name: 'ログアウト' })).toBeVisible();
-	return user;
-}
-
-/** 投稿を1件作る。作成後の投稿詳細ページに遷移した状態で返す。 */
-async function createPost(page: Page, opts: { body: string; prefecture: string; alt: string }) {
-	await page.goto('/posts/new');
-
-	// 画像を選ぶ。実ファイルを置かずにメモリ上のバイト列を渡す。
-	await page.setInputFiles('#photos', {
-		name: 'photo.png',
-		mimeType: 'image/png',
-		buffer: PNG
-	});
-
-	// **送信が終わっても、まだ投稿には使えない。**
-	// 形式の検証と EXIF の除去がサーバー側で走り、
-	// 完了して初めて「使えます」になる。
-	await expect(page.getByText('使えます')).toBeVisible({ timeout: 30_000 });
-
-	await page.getByLabel('画像1の説明（必須）').fill(opts.alt);
-	await page.getByLabel('都道府県（必須）').selectOption({ label: opts.prefecture });
-	await page.getByLabel('訪問日（必須）').fill('2026-05-03');
-	await page.getByLabel('本文（必須）').fill(opts.body);
-	await page.getByRole('button', { name: '投稿する' }).click();
-
-	await expect(page).toHaveURL(/\/posts\/\d+$/);
-}
 
 test.describe('投稿', () => {
 	test('画像を選んで投稿でき、詳細に表示される', async ({ page }) => {
-		await signup(page, '投稿する人');
+		await signup(page, { displayName: '投稿する人' });
 		await createPost(page, {
 			body: '函館の朝市で海鮮丼を食べた',
 			prefecture: '北海道',
@@ -111,7 +69,7 @@ test.describe('投稿', () => {
 	});
 
 	test('投稿がフィードに出る', async ({ page }) => {
-		await signup(page, 'フィード確認');
+		await signup(page, { displayName: 'フィード確認' });
 
 		// **本文は実行ごとに一意にする。** 固定の文言だと、過去の実行で作られた
 		// 投稿とも一致し、セレクタが複数の要素を掴んで落ちる。
@@ -141,7 +99,7 @@ test.describe('投稿', () => {
 	// 他人の投稿には削除ボタンを出さない。
 	// （権限の担保はサーバー側で行っており、これは表示の確認）
 	test('他人の投稿には削除ボタンが出ない', async ({ page, browser, baseURL }) => {
-		await signup(page, '投稿者');
+		await signup(page, { displayName: '投稿者' });
 		await createPost(page, { body: '他人が見る投稿', prefecture: '大阪府', alt: '大阪の写真' });
 		const url = page.url();
 
@@ -149,20 +107,9 @@ test.describe('投稿', () => {
 		// 「別の利用者」になっていないのに気づけないまま通ってしまう。
 		const otherContext = await browser.newContext({ baseURL });
 		const other = await otherContext.newPage();
-		await other.goto('/signup');
-		const u = unique();
-		await other.getByLabel('メールアドレス').fill(u.email);
-		await other.getByLabel('ハンドル').fill(u.handle);
-		await other.getByLabel('表示名').fill('別の人');
-		await other.getByLabel('パスワード').fill(u.password);
-		await other.getByRole('button', { name: '登録する' }).click();
-
-		// **「ログアウト」が見えるだけでは前提の確認にならない。**
-		// 既存のセッションが復元されただけでも見えてしまう。
-		// 意図した利用者になっていることを名前で確かめる。
-		await expect(
-			other.getByRole('navigation', { name: 'アカウント' }).getByText('別の人')
-		).toBeVisible();
+		// signup は表示名で本人確認まで行う。「ログアウト」が見えるだけだと、
+		// 既存のセッションが復元されただけの状態と区別できない。
+		await signup(other, { displayName: '別の人' });
 
 		await other.goto(url);
 		await expect(other.getByText('他人が見る投稿')).toBeVisible();
