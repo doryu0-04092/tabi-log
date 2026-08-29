@@ -56,6 +56,7 @@ type testDeps struct {
 	auth        AuthRepository
 	posts       PostRepository
 	reactions   ReactionRepository
+	follows     FollowRepository
 	tokens      *auth.JWTService
 }
 
@@ -77,6 +78,9 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 	if d.reactions == nil {
 		d.reactions = &stubReactionRepo{}
 	}
+	if d.follows == nil {
+		d.follows = &stubFollowRepo{}
+	}
 
 	deps := Deps{
 		DB:            stubPinger{err: d.pingErr},
@@ -84,6 +88,7 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 		Auth:          d.auth,
 		Posts:         d.posts,
 		Reactions:     d.reactions,
+		Follows:       d.follows,
 		TokenIssuer:   d.tokens,
 		TokenVerifier: d.tokens,
 		AuthOptions: AuthOptions{
@@ -211,8 +216,11 @@ func cookieByName(rec *httptest.ResponseRecorder, name string) *http.Cookie {
 // 使わないメソッドは「呼ばれたら失敗」にしていない。呼ばれても
 // 素直な零値を返すほうが、テストの意図（何を確かめているか）が読みやすい。
 type stubPostRepo struct {
-	owner    uint64
-	ownerErr error
+	owner      uint64
+	ownerErr   error
+	posts      []domain.Post
+	nextCursor uint64
+	listErr    error
 }
 
 func (s *stubPostRepo) CreatePendingMedia(context.Context, uint64, string) (uint64, error) {
@@ -236,6 +244,9 @@ func (s *stubPostRepo) GetPost(context.Context, uint64, storage.URLSigner, time.
 }
 func (s *stubPostRepo) ListFeed(context.Context, uint64, int, storage.URLSigner, time.Duration) ([]domain.Post, uint64, error) {
 	return nil, 0, nil
+}
+func (s *stubPostRepo) ListUserPosts(context.Context, uint64, uint64, int, storage.URLSigner, time.Duration) ([]domain.Post, uint64, error) {
+	return s.posts, s.nextCursor, s.listErr
 }
 
 // stubReactionRepo は呼び出しを記録し、返す値をテストごとに差し替えられる。
@@ -301,4 +312,72 @@ func (s *stubReactionRepo) GetComment(_ context.Context, commentID uint64) (doma
 		}
 	}
 	return domain.Comment{}, store.ErrCommentNotFound
+}
+
+// stubFollowRepo は呼び出しを記録し、返す値をテストごとに差し替えられる。
+type stubFollowRepo struct {
+	users map[string]domain.User // handle -> user
+
+	followCalls   [][2]uint64 // {followerID, followeeID}
+	unfollowCalls [][2]uint64
+	followErr     error
+
+	profile    store.UserProfile
+	profileErr error
+
+	list       []domain.User
+	nextCursor uint64
+	listErr    error
+	followed   map[uint64]bool
+
+	lastCursor uint64
+	lastLimit  int
+}
+
+func (s *stubFollowRepo) FindUserByHandle(_ context.Context, handle string) (domain.User, error) {
+	u, ok := s.users[handle]
+	if !ok {
+		return domain.User{}, store.ErrUserNotFoundByHandle
+	}
+	return u, nil
+}
+
+func (s *stubFollowRepo) Profile(_ context.Context, handle string, _ uint64) (store.UserProfile, error) {
+	if s.profileErr != nil {
+		return store.UserProfile{}, s.profileErr
+	}
+	if _, ok := s.users[handle]; !ok {
+		return store.UserProfile{}, store.ErrUserNotFoundByHandle
+	}
+	return s.profile, nil
+}
+
+func (s *stubFollowRepo) Follow(_ context.Context, followerID, followeeID uint64) error {
+	s.followCalls = append(s.followCalls, [2]uint64{followerID, followeeID})
+	if followerID == followeeID {
+		return store.ErrCannotFollowSelf
+	}
+	return s.followErr
+}
+
+func (s *stubFollowRepo) Unfollow(_ context.Context, followerID, followeeID uint64) error {
+	s.unfollowCalls = append(s.unfollowCalls, [2]uint64{followerID, followeeID})
+	return s.followErr
+}
+
+func (s *stubFollowRepo) ListFollowers(_ context.Context, _, cursorID uint64, limit int) ([]domain.User, uint64, error) {
+	s.lastCursor, s.lastLimit = cursorID, limit
+	return s.list, s.nextCursor, s.listErr
+}
+
+func (s *stubFollowRepo) ListFollowing(_ context.Context, _, cursorID uint64, limit int) ([]domain.User, uint64, error) {
+	s.lastCursor, s.lastLimit = cursorID, limit
+	return s.list, s.nextCursor, s.listErr
+}
+
+func (s *stubFollowRepo) FollowedUserIDs(context.Context, uint64, []uint64) (map[uint64]bool, error) {
+	if s.followed == nil {
+		return map[uint64]bool{}, nil
+	}
+	return s.followed, nil
 }

@@ -32,7 +32,7 @@
 
 <article class="card">
 	<header>
-		<a class="author" href={resolve('/')}>
+		<a class="author" href={resolve('/users/[handle]', { handle: post.author.handle })}>
 			<span class="name">{post.author.displayName}</span>
 			<span class="handle">@{post.author.handle}</span>
 		</a>

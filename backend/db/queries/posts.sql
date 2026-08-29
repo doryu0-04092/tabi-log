@@ -50,3 +50,23 @@ JOIN prefectures pref ON pref.code = p.prefecture_code
 WHERE p.id < ?
 ORDER BY p.id DESC
 LIMIT ?;
+
+-- ある利用者の投稿。新着フィードと同じくカーソルページネーション。
+--
+-- 索引は ix_posts_user_id (user_id, id DESC)。
+-- **ix_posts_user_created (user_id, created_at DESC) では足りない。**
+-- 絞り込みには使えるが ORDER BY id DESC を索引の並びで解決できず、
+-- EXPLAIN に Using filesort が出る（2026-08-29 に実測して確認し、
+-- 000003 で索引を追加した）。投稿数の多い利用者ほど並べ替える行が増える。
+-- name: ListPostsByUserBefore :many
+SELECT
+    p.id, p.user_id, p.body, p.prefecture_code, p.spot_name, p.visited_on,
+    p.like_count, p.comment_count, p.created_at, p.updated_at,
+    u.handle, u.display_name, u.bio,
+    pref.name AS prefecture_name, pref.name_kana AS prefecture_name_kana, pref.region
+FROM posts p
+JOIN users u ON u.id = p.user_id
+JOIN prefectures pref ON pref.code = p.prefecture_code
+WHERE p.user_id = ? AND p.id < ?
+ORDER BY p.id DESC
+LIMIT ?;

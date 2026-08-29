@@ -189,6 +189,156 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/{handle}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        /**
+         * プロフィールを取得する
+         * @description ハンドルで引く。**id ではなくハンドルを URL に使う。**
+         *     利用者が人に伝えられる識別子であり、`/users/traveler_01` のほうが
+         *     `/users/42` より意味が伝わるためである。
+         *
+         *     投稿数・フォロー数・フォロワー数は集計で求める。カウンタ列にしていないのは、
+         *     **プロフィールは1画面につき1回しか開かれず、フィードのように
+         *     20件分を繰り返し引く経路が無い**ためである。いいね数とは事情が違う。
+         */
+        get: operations["getUserProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{handle}/follow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * フォローする
+         * @description **冪等である。** 既にフォローしていても 204 を返す。
+         *     いいねと同じ理由で PUT にしている（「この相手へのフォローを、有る状態にする」）。
+         *
+         *     **自分自身はフォローできない**（400）。DB の CHECK 制約でも防いでいるが、
+         *     制約違反が 500 になるのを避けるためアプリケーション側でも判定する。
+         *
+         *     フォローされた相手に通知を作る。作成はフォローの登録と同一トランザクションで行う。
+         */
+        put: operations["followUser"];
+        post?: never;
+        /**
+         * フォローを解除する
+         * @description **冪等である。** フォローしていなくても 204 を返す。
+         *
+         *     解除すると、対応する通知も削除する。
+         */
+        delete: operations["unfollowUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{handle}/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        /**
+         * その利用者の投稿
+         * @description 投稿日の新しい順に返す。カーソルの扱いは新着フィードと同じ。
+         *
+         *     **訪問日順の「旅行履歴」は別の並びであり、ここには含めない。**
+         *     時間軸が2つあることを画面の切り替えで表す（features.md 1.3）。
+         */
+        get: operations["listUserPosts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{handle}/followers": {
+        parameters: {
+            query?: {
+                /** @description 前回の応答の `nextCursor` */
+                cursor?: components["parameters"]["UserCursor"];
+                limit?: components["parameters"]["UserLimit"];
+            };
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        /**
+         * フォロワーの一覧
+         * @description その利用者をフォローしている人を返す。
+         *
+         *     **並びは利用者 id の昇順であり、フォローした順ではない。**
+         *     `follows` の索引が `(followee_id, follower_id)` であり、
+         *     この順でのみカーソルが索引で解決できるためである。
+         *     フォロー日時順にするには索引の追加が要る。
+         */
+        get: operations["listFollowers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{handle}/following": {
+        parameters: {
+            query?: {
+                /** @description 前回の応答の `nextCursor` */
+                cursor?: components["parameters"]["UserCursor"];
+                limit?: components["parameters"]["UserLimit"];
+            };
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        /**
+         * フォロー中の一覧
+         * @description その利用者がフォローしている人を返す。並びは `listFollowers` と同じ理由で
+         *     利用者 id の昇順である。
+         */
+        get: operations["listFollowing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/posts": {
         parameters: {
             query?: never;
@@ -509,6 +659,45 @@ export interface components {
             displayName: string;
             bio?: string | null;
         };
+        /** @description 一覧に並べる利用者。フォローの導線を出すための状態を含む */
+        UserSummary: {
+            /** Format: int64 */
+            id: number;
+            handle: string;
+            displayName: string;
+            bio?: string | null;
+            /** @description 閲覧者がこの利用者をフォローしているか */
+            isFollowing: boolean;
+            /** @description 閲覧者自身か。自分にフォローの導線を出さないために使う */
+            isMe: boolean;
+        };
+        UserProfile: {
+            /** Format: int64 */
+            id: number;
+            handle: string;
+            displayName: string;
+            bio?: string | null;
+            postCount: number;
+            followingCount: number;
+            followerCount: number;
+            /**
+             * @description 投稿した都道府県の種類数。制覇率は 47 で割って画面が求める。
+             *     **地図そのものは 8 章で作る。** ここでは数だけを返す。
+             */
+            visitedPrefectureCount: number;
+            isFollowing: boolean;
+            isMe: boolean;
+        };
+        UserProfileResponse: {
+            data: components["schemas"]["UserProfile"];
+        };
+        UserListResponse: {
+            data: {
+                users: components["schemas"]["UserSummary"][];
+                /** @description 続きがある場合のみ入る */
+                nextCursor?: string | null;
+            };
+        };
         PresignRequest: {
             /**
              * @description 画像の種類。**この値は署名に焼き込まれる**ため、
@@ -774,6 +963,11 @@ export interface components {
         };
     };
     parameters: {
+        /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+        Handle: string;
+        /** @description 前回の応答の `nextCursor` */
+        UserCursor: string;
+        UserLimit: number;
         PostId: number;
         /**
          * @description CSRF 対策。値は `tabi-log` 固定。
@@ -1021,6 +1215,165 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getUserProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description プロフィール */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserProfileResponse"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    followUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description フォローした（既にしていた場合も含む） */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    unfollowUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 解除した（していなかった場合も含む） */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listUserPosts: {
+        parameters: {
+            query?: {
+                /** @description 前回の応答の `nextCursor` */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 投稿の一覧 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listFollowers: {
+        parameters: {
+            query?: {
+                /** @description 前回の応答の `nextCursor` */
+                cursor?: components["parameters"]["UserCursor"];
+                limit?: components["parameters"]["UserLimit"];
+            };
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 利用者の一覧 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listFollowing: {
+        parameters: {
+            query?: {
+                /** @description 前回の応答の `nextCursor` */
+                cursor?: components["parameters"]["UserCursor"];
+                limit?: components["parameters"]["UserLimit"];
+            };
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 利用者の一覧 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
         };
     };

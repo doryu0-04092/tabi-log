@@ -10,6 +10,30 @@ import (
 	"database/sql"
 )
 
+const countPostsByUser = `-- name: CountPostsByUser :one
+SELECT COUNT(*) FROM posts WHERE user_id = ?
+`
+
+func (q *Queries) CountPostsByUser(ctx context.Context, userID uint64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countPostsByUser, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countVisitedPrefectures = `-- name: CountVisitedPrefectures :one
+SELECT COUNT(DISTINCT prefecture_code) FROM posts WHERE user_id = ?
+`
+
+// 投稿した都道府県の種類数。制覇率の分子になる。
+// 索引 ix_posts_user_prefecture (user_id, prefecture_code) が効く。
+func (q *Queries) CountVisitedPrefectures(ctx context.Context, userID uint64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countVisitedPrefectures, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createUser = `-- name: CreateUser :execresult
 
 INSERT INTO users (handle, email, password_hash, display_name)
@@ -53,6 +77,38 @@ type GetUserByEmailRow struct {
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
 	row := q.db.QueryRowContext(ctx, getUserByEmail, email)
 	var i GetUserByEmailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Handle,
+		&i.Email,
+		&i.PasswordHash,
+		&i.DisplayName,
+		&i.Bio,
+		&i.AvatarMediaID,
+	)
+	return i, err
+}
+
+const getUserByHandle = `-- name: GetUserByHandle :one
+SELECT id, handle, email, password_hash, display_name, bio, avatar_media_id
+FROM users
+WHERE handle = ? AND deleted_at IS NULL
+`
+
+type GetUserByHandleRow struct {
+	ID            uint64
+	Handle        string
+	Email         string
+	PasswordHash  string
+	DisplayName   string
+	Bio           sql.NullString
+	AvatarMediaID sql.NullInt64
+}
+
+// ハンドルで引く。URL に使う識別子であり、プロフィールの入口になる。
+func (q *Queries) GetUserByHandle(ctx context.Context, handle string) (GetUserByHandleRow, error) {
+	row := q.db.QueryRowContext(ctx, getUserByHandle, handle)
+	var i GetUserByHandleRow
 	err := row.Scan(
 		&i.ID,
 		&i.Handle,

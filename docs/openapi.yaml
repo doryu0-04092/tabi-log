@@ -34,6 +34,8 @@ tags:
     description: 投稿と画像
   - name: reactions
     description: いいねとコメント
+  - name: users
+    description: プロフィールとフォロー
 
 # 既定ですべてのエンドポイントが認証を要する。
 # 認証不要のものは各操作で security: [] を明示して打ち消す。
@@ -277,6 +279,170 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{handle}:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+
+    get:
+      tags: [users]
+      operationId: getUserProfile
+      summary: プロフィールを取得する
+      description: |
+        ハンドルで引く。**id ではなくハンドルを URL に使う。**
+        利用者が人に伝えられる識別子であり、`/users/traveler_01` のほうが
+        `/users/42` より意味が伝わるためである。
+
+        投稿数・フォロー数・フォロワー数は集計で求める。カウンタ列にしていないのは、
+        **プロフィールは1画面につき1回しか開かれず、フィードのように
+        20件分を繰り返し引く経路が無い**ためである。いいね数とは事情が違う。
+      responses:
+        '200':
+          description: プロフィール
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{handle}/follow:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+
+    put:
+      tags: [users]
+      operationId: followUser
+      summary: フォローする
+      description: |
+        **冪等である。** 既にフォローしていても 204 を返す。
+        いいねと同じ理由で PUT にしている（「この相手へのフォローを、有る状態にする」）。
+
+        **自分自身はフォローできない**（400）。DB の CHECK 制約でも防いでいるが、
+        制約違反が 500 になるのを避けるためアプリケーション側でも判定する。
+
+        フォローされた相手に通知を作る。作成はフォローの登録と同一トランザクションで行う。
+      responses:
+        '204':
+          description: フォローした（既にしていた場合も含む）
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [users]
+      operationId: unfollowUser
+      summary: フォローを解除する
+      description: |
+        **冪等である。** フォローしていなくても 204 を返す。
+
+        解除すると、対応する通知も削除する。
+      responses:
+        '204':
+          description: 解除した（していなかった場合も含む）
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{handle}/posts:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+
+    get:
+      tags: [users]
+      operationId: listUserPosts
+      summary: その利用者の投稿
+      description: |
+        投稿日の新しい順に返す。カーソルの扱いは新着フィードと同じ。
+
+        **訪問日順の「旅行履歴」は別の並びであり、ここには含めない。**
+        時間軸が2つあることを画面の切り替えで表す（features.md 1.3）。
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: 前回の応答の `nextCursor`
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: 投稿の一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{handle}/followers:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+      - $ref: '#/components/parameters/UserCursor'
+      - $ref: '#/components/parameters/UserLimit'
+
+    get:
+      tags: [users]
+      operationId: listFollowers
+      summary: フォロワーの一覧
+      description: |
+        その利用者をフォローしている人を返す。
+
+        **並びは利用者 id の昇順であり、フォローした順ではない。**
+        `follows` の索引が `(followee_id, follower_id)` であり、
+        この順でのみカーソルが索引で解決できるためである。
+        フォロー日時順にするには索引の追加が要る。
+      responses:
+        '200':
+          description: 利用者の一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{handle}/following:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+      - $ref: '#/components/parameters/UserCursor'
+      - $ref: '#/components/parameters/UserLimit'
+
+    get:
+      tags: [users]
+      operationId: listFollowing
+      summary: フォロー中の一覧
+      description: |
+        その利用者がフォローしている人を返す。並びは `listFollowers` と同じ理由で
+        利用者 id の昇順である。
+      responses:
+        '200':
+          description: 利用者の一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -632,6 +798,35 @@ paths:
 
 components:
   parameters:
+    Handle:
+      name: handle
+      in: path
+      required: true
+      description: 利用者のハンドル。英数字とアンダースコアのみ
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_]+$'
+        minLength: 3
+        maxLength: 30
+
+    UserCursor:
+      name: cursor
+      in: query
+      required: false
+      description: 前回の応答の `nextCursor`
+      schema:
+        type: string
+
+    UserLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+
     PostId:
       name: postId
       in: path
@@ -855,6 +1050,103 @@ components:
           type: string
           nullable: true
           maxLength: 300
+
+    # -----------------------------------------------------------------------
+    # プロフィールとフォロー
+    # -----------------------------------------------------------------------
+    UserSummary:
+      type: object
+      description: 一覧に並べる利用者。フォローの導線を出すための状態を含む
+      required: [id, handle, displayName, isFollowing, isMe]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        handle:
+          type: string
+        displayName:
+          type: string
+        bio:
+          type: string
+          nullable: true
+        isFollowing:
+          type: boolean
+          description: 閲覧者がこの利用者をフォローしているか
+        isMe:
+          type: boolean
+          description: 閲覧者自身か。自分にフォローの導線を出さないために使う
+
+    UserProfile:
+      type: object
+      required:
+        [
+          id,
+          handle,
+          displayName,
+          postCount,
+          followingCount,
+          followerCount,
+          visitedPrefectureCount,
+          isFollowing,
+          isMe
+        ]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        handle:
+          type: string
+        displayName:
+          type: string
+        bio:
+          type: string
+          nullable: true
+        postCount:
+          type: integer
+          minimum: 0
+        followingCount:
+          type: integer
+          minimum: 0
+        followerCount:
+          type: integer
+          minimum: 0
+        visitedPrefectureCount:
+          type: integer
+          minimum: 0
+          maximum: 47
+          description: |
+            投稿した都道府県の種類数。制覇率は 47 で割って画面が求める。
+            **地図そのものは 8 章で作る。** ここでは数だけを返す。
+        isFollowing:
+          type: boolean
+        isMe:
+          type: boolean
+
+    UserProfileResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/UserProfile'
+
+    UserListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [users]
+          properties:
+            users:
+              type: array
+              items:
+                $ref: '#/components/schemas/UserSummary'
+            nextCursor:
+              type: string
+              nullable: true
+              description: 続きがある場合のみ入る
 
     # -----------------------------------------------------------------------
     # 投稿と画像

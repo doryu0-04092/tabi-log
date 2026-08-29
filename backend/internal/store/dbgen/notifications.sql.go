@@ -40,6 +40,21 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 	return err
 }
 
+const deleteFollowNotification = `-- name: DeleteFollowNotification :exec
+DELETE FROM notifications
+WHERE user_id = ? AND actor_id = ? AND type = 'follow'
+`
+
+type DeleteFollowNotificationParams struct {
+	UserID  uint64
+	ActorID uint64
+}
+
+func (q *Queries) DeleteFollowNotification(ctx context.Context, arg DeleteFollowNotificationParams) error {
+	_, err := q.db.ExecContext(ctx, deleteFollowNotification, arg.UserID, arg.ActorID)
+	return err
+}
+
 const deleteLikeNotification = `-- name: DeleteLikeNotification :exec
 DELETE FROM notifications
 WHERE user_id = ? AND actor_id = ? AND type = 'like' AND post_id = ?

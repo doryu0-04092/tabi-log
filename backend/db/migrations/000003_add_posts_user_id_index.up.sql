@@ -1,0 +1,11 @@
+-- 利用者ごとの投稿一覧のための索引。
+--
+-- 既存の ix_posts_user_created (user_id, created_at DESC) では、
+-- WHERE user_id = ? AND id < ? ORDER BY id DESC を索引の並びで解決できず、
+-- EXPLAIN に Using filesort が出る（実測、2026-08-29）。
+-- 投稿数の多い利用者ほど、1ページ返すのに並べ替える行が増える。
+--
+-- カーソルを id だけにしているのは新着フィードと同じ理由であり、
+-- そちらは主キーの逆順走査でそのまま解決できていた。
+-- 利用者で絞る場合はこの索引が要る。
+CREATE INDEX ix_posts_user_id ON posts (user_id, id DESC);

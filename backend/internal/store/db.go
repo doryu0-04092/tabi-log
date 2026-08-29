@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/doryu0-04092/tabi-log/backend/internal/config"
+	"github.com/doryu0-04092/tabi-log/backend/internal/store/dbgen"
 
 	_ "github.com/go-sql-driver/mysql" // database/sql に mysql ドライバを登録する
 )
@@ -37,4 +38,25 @@ func Open(ctx context.Context, cfg config.DBConfig) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// inTx はトランザクションの開始・巻き戻し・確定をまとめる。
+//
+// **2つの store が同じ定型を持っていたため関数に切り出した。**
+// 巻き戻しの書き忘れは接続を握ったまま離さない不具合になり、見つけにくい。
+func inTx(ctx context.Context, db *sql.DB, q *dbgen.Queries, fn func(*dbgen.Queries) error) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("トランザクションを開始できない: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := fn(q.WithTx(tx)); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("変更を確定できない: %w", err)
+	}
+	return nil
 }

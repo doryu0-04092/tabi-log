@@ -13,3 +13,7 @@ VALUES (?, ?, ?, ?, ?);
 -- name: DeleteLikeNotification :exec
 DELETE FROM notifications
 WHERE user_id = ? AND actor_id = ? AND type = 'like' AND post_id = ?;
+
+-- name: DeleteFollowNotification :exec
+DELETE FROM notifications
+WHERE user_id = ? AND actor_id = ? AND type = 'follow';

@@ -55,6 +55,7 @@ type PostRepository interface {
 	FindMediaByID(ctx context.Context, mediaID uint64) (store.MediaRecord, error)
 	GetPost(ctx context.Context, postID uint64, signer storage.URLSigner, ttl time.Duration) (domain.Post, error)
 	ListFeed(ctx context.Context, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
+	ListUserPosts(ctx context.Context, userID, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
 }
 
 // ObjectStorage は画像の保存先。
