@@ -17,6 +17,7 @@ import (
 
 	"github.com/doryu0-04092/tabi-log/backend/internal/api/gen"
 	"github.com/doryu0-04092/tabi-log/backend/internal/auth"
+	"github.com/doryu0-04092/tabi-log/backend/internal/storage"
 )
 
 // apiBasePath は全エンドポイントの前置きである。
@@ -59,6 +60,12 @@ type Deps struct {
 	Notifications NotificationRepository
 	Account       AccountRepository
 	Storage       ObjectStorage
+
+	// CDNCookies は画像配信の署名付き Cookie を発行する係。
+	// **nil でよい**（その場合は S3 の署名付き URL で配る）。
+	CDNCookies *storage.CDNSigner
+	// CDNCookieTTL は上の Cookie の有効期間。
+	CDNCookieTTL time.Duration
 
 	TokenIssuer   auth.TokenIssuer
 	TokenVerifier auth.TokenVerifier
@@ -109,12 +116,18 @@ func NewRouter(deps Deps) http.Handler {
 		healthHandler:     &healthHandler{db: deps.DB, logger: deps.Logger},
 		prefectureHandler: &prefectureHandler{store: deps.Prefectures, logger: deps.Logger},
 		authHandler: &authHandler{
-			repo:     deps.Auth,
-			issuer:   deps.TokenIssuer,
-			opts:     deps.AuthOptions,
-			logger:   deps.Logger,
-			byIP:     NewRateLimiter(deps.LoginAttemptLimit, deps.LoginAttemptWindow),
-			byEmail:  NewRateLimiter(deps.LoginAttemptLimit, deps.LoginAttemptWindow),
+			repo:    deps.Auth,
+			issuer:  deps.TokenIssuer,
+			opts:    deps.AuthOptions,
+			logger:  deps.Logger,
+			byIP:    NewRateLimiter(deps.LoginAttemptLimit, deps.LoginAttemptWindow),
+			byEmail: NewRateLimiter(deps.LoginAttemptLimit, deps.LoginAttemptWindow),
+			cdn: &cdnCookieIssuer{
+				signer: deps.CDNCookies,
+				ttl:    deps.CDNCookieTTL,
+				secure: deps.AuthOptions.CookieSecure,
+				logger: deps.Logger,
+			},
 			now:      time.Now,
 			newToken: auth.NewRefreshToken,
 		},

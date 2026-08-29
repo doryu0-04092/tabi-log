@@ -40,6 +40,7 @@ data "aws_iam_policy_document" "execution_secrets" {
     resources = [
       aws_ssm_parameter.db_password.arn,
       aws_ssm_parameter.jwt_secret.arn,
+      aws_ssm_parameter.cdn_private_key.arn,
     ]
   }
 }

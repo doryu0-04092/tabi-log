@@ -52,6 +52,40 @@ resource "aws_s3_bucket_cors_configuration" "images" {
   }
 }
 
+# **CloudFront からだけ読ませる。**
+#
+# 配信するのは variants/ 配下だけである。originals/ にはアップロードされた
+# ままの画像があり、**EXIF（GPS 座標を含む）が残っている**。
+# EXIF を落とすのは変換の工程であり、その成果物が variants/ である。
+data "aws_iam_policy_document" "images_oac" {
+  statement {
+    sid    = "AllowCloudFrontReadVariants"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+
+    actions = ["s3:GetObject"]
+    # **バケット全体を許さない。** ここを "/*" にすると、
+    # 変換前の画像まで配信できる状態になる。
+    resources = ["${aws_s3_bucket.images.arn}/variants/*"]
+
+    # この条件が無いと、OAC を設定した他人のディストリビューションからも読める。
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.main.arn]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "images" {
+  bucket = aws_s3_bucket.images.id
+  policy = data.aws_iam_policy_document.images_oac.json
+}
+
 # 確定しなかったアップロードを期限で消す。
 #
 # 署名付き URL を出したあとブラウザが閉じられると、誰も参照しない

@@ -168,7 +168,7 @@ func newDB(t *testing.T) *sql.DB {
 // **S3 はここでの検証対象ではない。** 画像の鍵が正しく引けているかだけを見る。
 type fakeSigner struct{}
 
-func (fakeSigner) PresignGet(_ context.Context, key string, _ time.Duration) (string, error) {
+func (fakeSigner) DisplayURL(_ context.Context, key string, _ time.Duration) (string, error) {
 	return "signed:" + key, nil
 }
 

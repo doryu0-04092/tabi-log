@@ -77,12 +77,15 @@ type AuthOptions struct {
 }
 
 type authHandler struct {
-	repo     AuthRepository
-	issuer   auth.TokenIssuer
-	opts     AuthOptions
-	logger   *slog.Logger
-	byIP     *RateLimiter
-	byEmail  *RateLimiter
+	repo    AuthRepository
+	issuer  auth.TokenIssuer
+	opts    AuthOptions
+	logger  *slog.Logger
+	byIP    *RateLimiter
+	byEmail *RateLimiter
+	// cdn は画像配信の署名付き Cookie を発行する。
+	// **nil を許す**（ローカルと LocalStack には CloudFront が無い）。
+	cdn      *cdnCookieIssuer
 	now      func() time.Time
 	newToken func() (string, string, error)
 }
@@ -246,7 +249,7 @@ func (h *authHandler) Refresh(w http.ResponseWriter, r *http.Request, _ gen.Refr
 		return
 	}
 
-	h.setRefreshCookie(w, newToken, newExpiresAt)
+	h.setRefreshCookie(w, r, newToken, newExpiresAt)
 	h.writeAuthResponse(w, r, user, http.StatusOK)
 }
 
@@ -316,7 +319,7 @@ func (h *authHandler) respondWithSession(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	h.setRefreshCookie(w, token, expiresAt)
+	h.setRefreshCookie(w, r, token, expiresAt)
 	h.writeAuthResponse(w, r, user, status)
 }
 
@@ -336,7 +339,11 @@ func (h *authHandler) writeAuthResponse(w http.ResponseWriter, r *http.Request, 
 	writeJSON(w, r, status, body.Data)
 }
 
-func (h *authHandler) setRefreshCookie(w http.ResponseWriter, token string, expiresAt time.Time) {
+func (h *authHandler) setRefreshCookie(w http.ResponseWriter, r *http.Request, token string, expiresAt time.Time) {
+	// **画像配信の Cookie もここで置き直す。** 画面は15分ごとに
+	// アクセストークンを取り直すため、使い続けている限り切れない。
+	h.cdn.issue(r.Context(), w, h.now())
+
 	// **残り秒数は1度だけ数える。** 2回数えると、その間に進んだ分だけ
 	// 印とトークンの寿命がずれる（実際に1秒ずれた）。
 	maxAge := int(time.Until(expiresAt).Seconds())
@@ -390,6 +397,7 @@ func (h *authHandler) clearSessionHintCookie(w http.ResponseWriter) {
 
 func (h *authHandler) clearRefreshCookie(w http.ResponseWriter) {
 	h.clearSessionHintCookie(w)
+	h.cdn.clear(w)
 	// 削除するときも Path と属性を発行時と揃える。
 	// 揃っていないとブラウザが別の Cookie とみなし、元の Cookie が残る。
 	http.SetCookie(w, &http.Cookie{
