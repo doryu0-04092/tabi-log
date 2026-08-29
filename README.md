@@ -17,6 +17,7 @@
 | [ER図](docs/er-diagram.md) | テーブル定義とインデックス設計 |
 | [API仕様](docs/openapi.yaml) | OpenAPI 仕様。**これが唯一の正**であり、コードはここから生成します |
 | [AWS構成設計](docs/aws-architecture.md) | インフラ構成と設計判断 |
+| [インフラ](infra/README.md) | Terraform のコードと使い方。**まだ適用していない** |
 | [画面設計](docs/screens.md) | 画面一覧と遷移 |
 | [テスト計画](docs/test-plan.md) | テストの範囲と方針 |
 | [運用設計](docs/operations.md) | ログ・監視・アラート・障害対応・ポストモーテム |

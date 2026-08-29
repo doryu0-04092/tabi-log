@@ -28,6 +28,24 @@ const refreshCookieName = "tabilog_refresh"
 // `/api/auth/refresh` まで絞ると、ログアウト時にサーバー側で失効させられない。
 const refreshCookiePath = "/api/auth"
 
+// sessionHintCookieName は「セッションがありそうだ」ということだけを示す印。
+//
+// **秘密を含まない。値は常に "1" である。**
+//
+// これが無いと、画面は起動のたびに /api/auth/refresh を叩くことになる。
+// 未ログインの人にとっては必ず 401 が返る無駄な往復であり、
+// 最初の描画が1往復ぶん遅れるうえ、ブラウザのコンソールにエラーが残る。
+//
+// **HttpOnly にしない。** JavaScript から読めることが目的である。
+// 読めても分かるのは「リフレッシュトークンを持っているらしい」ことだけで、
+// トークンそのものは HttpOnly の側にあり読めない。
+//
+// Path を "/" にしているのは、どの画面からでも読めるようにするためである。
+// リフレッシュトークン本体（Path=/api/auth）とは送られる範囲が違ってよい。
+// **印の寿命はトークンと揃える。** ずれると、印はあるのに
+// トークンが無い（無駄な 401 が戻る）か、その逆（ログアウトして見える）になる。
+const sessionHintCookieName = "tabilog_session"
+
 // AuthRepository は認証に必要な永続化操作を表す。
 //
 // インターフェースを使う側（この層）で宣言している。
@@ -179,6 +197,10 @@ func (h *authHandler) Refresh(w http.ResponseWriter, r *http.Request, _ gen.Refr
 
 	cookie, err := r.Cookie(refreshCookieName)
 	if err != nil || cookie.Value == "" {
+		// **印だけが残っている状態を、ここで解消する。**
+		// 印はあるのにトークンが無いと、画面は開くたびに
+		// ここへ問い合わせに来続けることになる。
+		h.clearSessionHintCookie(w)
 		writeError(w, r, http.StatusUnauthorized, "unauthenticated", "ログインが必要です")
 		return
 	}
@@ -315,6 +337,11 @@ func (h *authHandler) writeAuthResponse(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *authHandler) setRefreshCookie(w http.ResponseWriter, token string, expiresAt time.Time) {
+	// **残り秒数は1度だけ数える。** 2回数えると、その間に進んだ分だけ
+	// 印とトークンの寿命がずれる（実際に1秒ずれた）。
+	maxAge := int(time.Until(expiresAt).Seconds())
+
+	h.setSessionHintCookie(w, expiresAt, maxAge)
 	http.SetCookie(w, &http.Cookie{
 		Name:  refreshCookieName,
 		Value: token,
@@ -326,11 +353,43 @@ func (h *authHandler) setRefreshCookie(w http.ResponseWriter, token string, expi
 		// SameSite=Strict: 他サイトからの遷移では送られない。CSRF の主防御。
 		SameSite: http.SameSiteStrictMode,
 		Expires:  expiresAt,
-		MaxAge:   int(time.Until(expiresAt).Seconds()),
+		MaxAge:   maxAge,
+	})
+}
+
+// setSessionHintCookie はセッションの有無を示す印を置く。
+//
+// **値に意味を持たせない。** 利用者 ID や期限を入れると、
+// 「読めても害が無い」という前提が崩れる。
+func (h *authHandler) setSessionHintCookie(w http.ResponseWriter, expiresAt time.Time, maxAge int) {
+	http.SetCookie(w, &http.Cookie{
+		Name:  sessionHintCookieName,
+		Value: "1",
+		Path:  "/",
+		// **HttpOnly にしない。** 画面が読めることが目的である。
+		HttpOnly: false,
+		Secure:   h.opts.CookieSecure,
+		// 印だけなので Lax でよいが、本体と揃えて驚きを減らす。
+		SameSite: http.SameSiteStrictMode,
+		Expires:  expiresAt,
+		MaxAge:   maxAge,
+	})
+}
+
+func (h *authHandler) clearSessionHintCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionHintCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: false,
+		Secure:   h.opts.CookieSecure,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
 	})
 }
 
 func (h *authHandler) clearRefreshCookie(w http.ResponseWriter) {
+	h.clearSessionHintCookie(w)
 	// 削除するときも Path と属性を発行時と揃える。
 	// 揃っていないとブラウザが別の Cookie とみなし、元の Cookie が残る。
 	http.SetCookie(w, &http.Cookie{

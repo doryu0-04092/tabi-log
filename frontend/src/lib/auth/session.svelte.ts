@@ -45,14 +45,40 @@ setRefreshListener((user) => {
 });
 
 /**
+ * セッションがありそうかを、サーバーが置いた印から判断する。
+ *
+ * **印は秘密を含まない。** 値は常に "1" で、分かるのは
+ * 「リフレッシュトークンを持っているらしい」ことだけである。
+ * トークン本体は HttpOnly の別の Cookie にあり、ここからは読めない。
+ *
+ * 印の寿命はリフレッシュトークンと揃えてあるため、
+ * **期限が切れれば印も消える。**
+ */
+function hasSessionHint(): boolean {
+	if (typeof document === 'undefined') return false;
+	return document.cookie.split(';').some((c) => c.trim().startsWith('tabilog_session=1'));
+}
+
+/**
  * 起動時にセッションを復元する。
  *
  * アクセストークンはメモリにしか無いためリロードで消える。
  * Cookie のリフレッシュトークンは残っているので、そこから取り直す。
- * 未ログインなら失敗するだけで、例外にはしない。
+ *
+ * **印が無ければ問い合わせない。** 未ログインの人にとっては
+ * 必ず 401 が返る無駄な往復であり、最初の描画が1往復ぶん遅れるうえ、
+ * ブラウザのコンソールにエラーが残る（Lighthouse でも指摘される）。
+ *
+ * **印があっても、成功するとは限らない。** 失効や盗用検知で
+ * サーバー側が無効にしていることがある。その場合は今までどおり
+ * 401 が返り、ログアウト状態に戻る。
  */
 export async function restoreSession(): Promise<void> {
 	if (restored) return;
+	if (!hasSessionHint()) {
+		restored = true;
+		return;
+	}
 	try {
 		await refreshAccessToken();
 	} finally {

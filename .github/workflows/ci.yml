@@ -298,6 +298,45 @@ jobs:
             frontend/test-results/
           retention-days: 7
 
-# インフラの検証ジョブ（terraform fmt -check / validate）は infra/ に
-# Terraform のコードを置いた時点で追加する。検証対象が無い状態でジョブだけ
-# 置くと「通っている」という誤った印象を与えるため、今は入れていない。
+  infra:
+    name: インフラ（Terraform）
+    runs-on: ubuntu-latest
+    # **AWS には一切つながない。** fmt と validate は認証を要さず、
+    # 書式と構文・型・参照の整合だけを見る。
+    # plan は AWS の認証情報が要るため CI では回さない
+    # （回すなら読み取り専用の権限を用意してからにする）。
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.7
+          # 出力に色付けの制御文字が混ざると読みにくいので切る。
+          terraform_wrapper: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      # **成果物が無いと validate の時点で落ちる。**
+      # lambda.tf が filebase64sha256 で zip を読むため、
+      # ファイルが実在しないと関数呼び出しに失敗する。
+      # 生成物はリポジトリに置いていないので、ここで作る。
+      # 作れること自体も確認になる。
+      - name: 画像処理 Lambda をビルドする
+        run: bash docker/build-imageworker.sh
+
+      - name: 書式
+        working-directory: infra
+        run: terraform fmt -check -recursive -diff
+
+      # -backend=false で state に触らずに初期化する。
+      # プロバイダの取得だけを行い、ローカルの state ファイルも作らない。
+      - name: 初期化（バックエンドなし）
+        working-directory: infra
+        run: terraform init -backend=false -input=false
+
+      - name: 検証
+        working-directory: infra
+        run: terraform validate
