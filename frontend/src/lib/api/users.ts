@@ -69,3 +69,48 @@ export function listUserPrefectures(handle: string): Promise<{ prefectures: Pref
 		`/users/${encodeURIComponent(handle)}/prefectures`
 	);
 }
+
+/**
+ * プロフィールを編集する。
+ *
+ * **送った項目だけが変わる。** 自己紹介を消すときは空文字を送る。
+ */
+export function updateProfile(input: {
+	displayName?: string;
+	bio?: string;
+}): Promise<components['schemas']['User']> {
+	return request<components['schemas']['User']>('/users/me', { method: 'PATCH', body: input });
+}
+
+/**
+ * パスワードを変更する。
+ *
+ * **成功すると全リフレッシュトークンが失効する。** 呼び出した側も
+ * 入り直しになるため、画面はログインへ送る。
+ */
+export function changePassword(input: {
+	currentPassword: string;
+	newPassword: string;
+}): Promise<void> {
+	return request<void>('/users/me/password', { method: 'PUT', body: input, csrf: true });
+}
+
+/** 退会する。**取り消せない。** */
+export function deleteAccount(currentPassword: string): Promise<void> {
+	return request<void>('/users/me', {
+		method: 'DELETE',
+		body: { currentPassword },
+		csrf: true
+	});
+}
+
+/** 旅行履歴（訪問日順）を取る。カーソルは「訪問日_投稿ID」の形。 */
+export function listUserTravels(
+	handle: string,
+	cursor?: string | null
+): Promise<{ posts: Post[]; nextCursor?: string | null }> {
+	const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+	return request<{ posts: Post[]; nextCursor?: string | null }>(
+		`/users/${encodeURIComponent(handle)}/travels${query}`
+	);
+}

@@ -109,3 +109,13 @@ function applySession(data: AuthPayload): void {
 	currentUser = data.user;
 	restored = true;
 }
+
+/**
+ * 保持している利用者情報を差し替える。
+ *
+ * プロフィールを編集したあとに呼ぶ。**呼ばないとヘッダーの表示名が
+ * 古いまま残り、保存できたのか分からなくなる。**
+ */
+export function setSessionUser(user: User): void {
+	currentUser = user;
+}

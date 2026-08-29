@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { createPost, signup, type TestUser } from './fixtures/app';
+import { createPost, signup, toggleFollow, toggleLike, type TestUser } from './fixtures/app';
 
 /** 別の利用者を作り、その画面を返す。呼び出し側が閉じる。 */
 async function otherUser(
@@ -71,11 +71,7 @@ test.describe('通知', () => {
 
 		const other = await otherUser(browser, baseURL, 'フォローした人');
 		await other.page.goto(`/users/${me.handle}`);
-		await other.page.getByRole('button', { name: /^フォローされる人を/ }).click();
-		await expect(other.page.getByRole('button', { name: /^フォローされる人を/ })).toHaveAttribute(
-			'aria-pressed',
-			'true'
-		);
+		await toggleFollow(other.page, 'フォローされる人', true);
 		await other.context.close();
 
 		await page.goto('/notifications');
@@ -87,11 +83,7 @@ test.describe('通知', () => {
 		await signup(page);
 		await createPost(page, { body: '自分でいいねする', prefecture: '沖縄県', alt: '沖縄の写真' });
 
-		await page.getByRole('button', { name: /^いいね/ }).click();
-		await expect(page.getByRole('button', { name: /^いいね/ })).toHaveAttribute(
-			'aria-pressed',
-			'true'
-		);
+		await toggleLike(page, true);
 
 		await page.goto('/notifications');
 		await expect(page.getByText('まだ通知はありません。')).toBeVisible();
@@ -105,15 +97,12 @@ test.describe('通知', () => {
 
 		const other = await otherUser(browser, baseURL, '取り消す人');
 		await other.page.goto(url);
-		const like = other.page.getByRole('button', { name: /^いいね/ });
-		await like.click();
-		await expect(like).toHaveAttribute('aria-pressed', 'true');
+		await toggleLike(other.page, true);
 
 		await page.goto('/notifications');
 		await expect(page.getByText('があなたの投稿にいいねしました')).toBeVisible();
 
-		await like.click();
-		await expect(like).toHaveAttribute('aria-pressed', 'false');
+		await toggleLike(other.page, false);
 		await other.context.close();
 
 		await page.goto('/notifications');

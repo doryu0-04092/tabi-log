@@ -80,6 +80,7 @@ func run() error {
 		Follows:       store.NewFollowStore(db),
 		Search:        search.NewMySQLSearcher(db),
 		Notifications: store.NewNotificationStore(db),
+		Account:       store.NewAccountStore(db),
 		Storage:       objectStorage,
 		TokenIssuer:   tokens,
 		TokenVerifier: tokens,

@@ -111,3 +111,27 @@ FROM posts p
 JOIN users u ON u.id = p.user_id
 JOIN prefectures pref ON pref.code = p.prefecture_code
 WHERE p.id IN (sqlc.slice('ids'));
+
+-- 旅行履歴。**投稿日ではなく訪問日の新しい順。**
+--
+-- 訪問日は重複するため、カーソルは (訪問日, ID) の組になる。
+--
+-- **行値の比較 (a, b) < (?, ?) は使えない。** 意味としてはこちらが素直だが、
+-- sqlc が解釈できずプレースホルダが引数に現れない（実測）。
+-- 展開した形で書く。人気順のカーソルと同じ形である。
+--
+-- 索引 ix_posts_user_visited_id (user_id, visited_on DESC, id DESC)。
+-- name: ListTravelsByUserBefore :many
+SELECT
+    p.id, p.user_id, p.body, p.prefecture_code, p.spot_name, p.visited_on,
+    p.like_count, p.comment_count, p.created_at, p.updated_at,
+    u.handle, u.display_name, u.bio,
+    pref.name AS prefecture_name, pref.name_kana AS prefecture_name_kana, pref.region
+FROM posts p
+JOIN users u ON u.id = p.user_id
+JOIN prefectures pref ON pref.code = p.prefecture_code
+WHERE p.user_id = sqlc.arg('user_id')
+  AND (p.visited_on < sqlc.arg('visited_on')
+       OR (p.visited_on = sqlc.arg('visited_on') AND p.id < sqlc.arg('id')))
+ORDER BY p.visited_on DESC, p.id DESC
+LIMIT ?;

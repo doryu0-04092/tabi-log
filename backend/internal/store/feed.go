@@ -109,6 +109,59 @@ func (s *PostStore) ListUserPosts(
 	return s.buildPage(ctx, converted, limit, signer, urlTTL)
 }
 
+// TravelCursor は旅行履歴の続きを取る位置。
+//
+// **訪問日は重複する。** 日付だけでは同じ日の中のどこまで返したかを
+// 表せないため、投稿 ID と組にする。
+type TravelCursor struct {
+	VisitedOn time.Time
+	ID        uint64
+}
+
+// ListUserTravels はある利用者の投稿を**訪問日**の新しい順に返す。
+//
+// 投稿日順（ListUserPosts）とは別の軸である。旅行から帰ったあとに
+// まとめて投稿するのが自然な使われ方であり、時間軸が2つ要る。
+func (s *PostStore) ListUserTravels(
+	ctx context.Context,
+	userID uint64,
+	cursor TravelCursor,
+	limit int,
+	signer storage.URLSigner,
+	urlTTL time.Duration,
+) ([]domain.Post, TravelCursor, error) {
+	rows, err := s.q.ListTravelsByUserBefore(ctx, dbgen.ListTravelsByUserBeforeParams{
+		UserID:    userID,
+		VisitedOn: cursor.VisitedOn,
+		ID:        cursor.ID,
+		Limit:     int32(limit + 1),
+	})
+	if err != nil {
+		return nil, TravelCursor{}, fmt.Errorf("旅行履歴の取得に失敗した: %w", err)
+	}
+
+	hasMore := len(rows) > limit
+	if hasMore {
+		rows = rows[:limit]
+	}
+
+	converted := make([]dbgen.ListPostsBeforeRow, 0, len(rows))
+	for _, r := range rows {
+		converted = append(converted, dbgen.ListPostsBeforeRow(r))
+	}
+	posts, err := s.assemble(ctx, converted, signer, urlTTL)
+	if err != nil {
+		return nil, TravelCursor{}, err
+	}
+
+	var next TravelCursor
+	if hasMore && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		next = TravelCursor{VisitedOn: last.VisitedOn, ID: last.ID}
+	}
+	return posts, next, nil
+}
+
 // buildPage は取得した行を1ページ分の投稿に組み立てる。
 //
 // rows は「限度より1件多く取ったもの」を受け取り、続きの有無をここで判定する。

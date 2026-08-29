@@ -282,6 +282,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 退会する
+         * @description **取り消せない。** 現在のパスワードの入力を必須とする。
+         *
+         *     物理削除ではなく、次を行う（features.md 1.5）。
+         *
+         *     1. `deleted_at` を設定する
+         *     2. メールアドレスを復元不能な値に置き換え、表示名を「退会したユーザー」、
+         *        自己紹介を空にする
+         *     3. 投稿・コメント・いいね・フォロー・メディアを削除する。
+         *        **S3 のオブジェクトも明示的に消す**（外部キーの連鎖では消えない）
+         *     4. **ハンドルは解放せず保持する。** 解放すると、別人が同じハンドルを
+         *        取れてしまい、過去のリンクの指す先が変わる
+         *
+         *     リフレッシュトークンも失効させ、Cookie を消す。
+         */
+        delete: operations["deleteAccount"];
+        options?: never;
+        head?: never;
+        /**
+         * プロフィールを編集する
+         * @description 表示名と自己紹介を変える。**送られた項目だけを変える。**
+         *     省略された項目は現在の値のままにする。
+         *
+         *     **自己紹介を消すときは空文字を送る。** `null` と「省略」を
+         *     JSON の復号後に区別するには生の本文を見る必要があり、
+         *     仕組みが増えるわりに得るものが無い。
+         */
+        patch: operations["updateProfile"];
+        trace?: never;
+    };
+    "/users/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * パスワードを変更する
+         * @description **現在のパスワードの入力を必須とする。** 端末を離席した隙に
+         *     変えられるのを防ぐためである。
+         *
+         *     **変更後はそのユーザーの全リフレッシュトークンを失効させる。**
+         *     パスワードを変える理由が漏洩の疑いである場合、既存のセッションが
+         *     残るのは意図に反する。呼び出した側も入り直しになる。
+         *
+         *     > **発行済みのアクセストークンは最大15分間有効なまま**である。
+         *     > 失効させるにはブラックリストが要り、結局データベース参照になるため
+         *     > 採らない（tech-stack.md の割り切り）。
+         */
+        put: operations["changePassword"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{handle}/travels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 旅行履歴（訪問日順）
+         * @description **投稿日ではなく訪問日の新しい順に返す。**
+         *
+         *     時間軸が2つあるのは、旅行から帰ったあとにまとめて投稿するのが
+         *     自然な使われ方だからである。フィードは「新しく共有されたもの」を
+         *     見せる場、旅行履歴は「いつ行ったか」を並べる場である。
+         *
+         *     カーソルは `<訪問日>_<投稿ID>` の形になる。**訪問日は重複する**ため、
+         *     日付だけでは同じ日の中のどこまで返したかを表せない。
+         */
+        get: operations["listUserTravels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/{handle}": {
         parameters: {
             query?: never;
@@ -913,6 +1013,23 @@ export interface components {
                 /** @description 続きがある場合のみ入る */
                 nextCursor?: string | null;
             };
+        };
+        /** @description 送られた項目だけを変える。省略した項目は現在の値のまま */
+        UpdateProfileRequest: {
+            displayName?: string;
+            /** @description 空文字を送ると消す。省略した場合は変えない */
+            bio?: string;
+        };
+        ChangePasswordRequest: {
+            currentPassword: string;
+            newPassword: string;
+        };
+        DeleteAccountRequest: {
+            /** @description 取り消せない操作のため、本人であることを確かめる */
+            currentPassword: string;
+        };
+        UserResponse: {
+            data: components["schemas"]["User"];
         };
         PrefectureCount: {
             /** @description JIS X 0401 の都道府県コード */
@@ -1574,6 +1691,131 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthenticated"];
+        };
+    };
+    deleteAccount: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description CSRF 対策。値は `tabi-log` 固定。
+                 *
+                 *     カスタムヘッダーは単純リクエストの条件を外れるため、
+                 *     クロスオリジンから送るには CORS のプリフライトが通る必要がある。
+                 *     フォーム送信や `<img>` のような**プリフライトを伴わない経路では付けられない**。
+                 *     `SameSite=Strict` と合わせて二重に守る。
+                 */
+                "X-Requested-With": components["parameters"]["RequestedWith"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description 退会した */
+            204: {
+                headers: {
+                    "Set-Cookie": components["headers"]["RefreshTokenCookie"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    updateProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description 更新した */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description CSRF 対策。値は `tabi-log` 固定。
+                 *
+                 *     カスタムヘッダーは単純リクエストの条件を外れるため、
+                 *     クロスオリジンから送るには CORS のプリフライトが通る必要がある。
+                 *     フォーム送信や `<img>` のような**プリフライトを伴わない経路では付けられない**。
+                 *     `SameSite=Strict` と合わせて二重に守る。
+                 */
+                "X-Requested-With": components["parameters"]["RequestedWith"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description 変更した */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    listUserTravels: {
+        parameters: {
+            query?: {
+                /** @description 前回の応答の `nextCursor` */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description 利用者のハンドル。英数字とアンダースコアのみ */
+                handle: components["parameters"]["Handle"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 投稿の一覧 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostListResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
         };
     };
     getUserProfile: {

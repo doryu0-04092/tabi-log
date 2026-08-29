@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { createPost, signup } from './fixtures/app';
+import { createPost, signup, toggleFollow } from './fixtures/app';
 
 test.describe('フィードの切り替え', () => {
 	test('既定は新着で、現在地が分かる', async ({ page }) => {
@@ -72,22 +72,14 @@ test.describe('フィードの切り替え', () => {
 		await expect(page.getByText(body)).toBeHidden();
 
 		await page.goto(`/users/${target.handle}`);
-		await page.getByRole('button', { name: /^フィードに出る人を/ }).click();
-		await expect(page.getByRole('button', { name: /^フィードに出る人を/ })).toHaveAttribute(
-			'aria-pressed',
-			'true'
-		);
+		await toggleFollow(page, 'フィードに出る人', true);
 
 		await page.goto('/?tab=following');
 		await expect(page.getByText(body)).toBeVisible();
 
 		// 解除すると消える。
 		await page.goto(`/users/${target.handle}`);
-		await page.getByRole('button', { name: /^フィードに出る人を/ }).click();
-		await expect(page.getByRole('button', { name: /^フィードに出る人を/ })).toHaveAttribute(
-			'aria-pressed',
-			'false'
-		);
+		await toggleFollow(page, 'フィードに出る人', false);
 
 		await page.goto('/?tab=following');
 		await expect(page.getByText(body)).toBeHidden();
