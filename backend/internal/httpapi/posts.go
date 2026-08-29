@@ -166,7 +166,7 @@ func (h *postHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	spot := trimOptional(req.SpotName)
 	tags, msg := normalizeTags(req.Tags)
 	if msg == "" {
-		msg = validatePostFields(req.Body, req.PrefectureCode, spot, req.VisitedOn.Time, h.now())
+		msg = validatePostFields(req.Body, req.PrefectureCode, spot, optionalDate(req.VisitedOn), h.now())
 	}
 	if msg == "" {
 		msg = validateMediaInput(req.Media)
@@ -178,10 +178,7 @@ func (h *postHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 
 	media := make([]store.MediaAttachment, 0, len(req.Media))
 	for _, m := range req.Media {
-		media = append(media, store.MediaAttachment{
-			MediaID: uint64(m.MediaId),
-			AltText: strings.TrimSpace(m.AltText),
-		})
+		media = append(media, store.MediaAttachment{MediaID: uint64(m.MediaId)})
 	}
 
 	postID, err := h.repo.CreatePost(r.Context(), store.CreatePostInput{
@@ -189,7 +186,7 @@ func (h *postHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		Body:           strings.TrimSpace(req.Body),
 		PrefectureCode: req.PrefectureCode,
 		SpotName:       spot,
-		VisitedOn:      req.VisitedOn.Time,
+		VisitedOn:      optionalDate(req.VisitedOn),
 		Tags:           tags,
 		Media:          media,
 	})
@@ -236,22 +233,11 @@ func (h *postHandler) UpdatePost(w http.ResponseWriter, r *http.Request, postID 
 	spot := trimOptional(req.SpotName)
 	tags, msg := normalizeTags(req.Tags)
 	if msg == "" {
-		msg = validatePostFields(req.Body, req.PrefectureCode, spot, req.VisitedOn.Time, h.now())
-	}
-	if msg == "" {
-		msg = validateAltTexts(req.MediaAltTexts)
+		msg = validatePostFields(req.Body, req.PrefectureCode, spot, optionalDate(req.VisitedOn), h.now())
 	}
 	if msg != "" {
 		writeError(w, r, http.StatusBadRequest, "validation_error", msg)
 		return
-	}
-
-	alts := make([]store.MediaAttachment, 0, len(req.MediaAltTexts))
-	for _, m := range req.MediaAltTexts {
-		alts = append(alts, store.MediaAttachment{
-			MediaID: uint64(m.MediaId),
-			AltText: strings.TrimSpace(m.AltText),
-		})
 	}
 
 	if err := h.repo.UpdatePost(r.Context(), store.UpdatePostInput{
@@ -260,9 +246,8 @@ func (h *postHandler) UpdatePost(w http.ResponseWriter, r *http.Request, postID 
 		Body:           strings.TrimSpace(req.Body),
 		PrefectureCode: req.PrefectureCode,
 		SpotName:       spot,
-		VisitedOn:      req.VisitedOn.Time,
+		VisitedOn:      optionalDate(req.VisitedOn),
 		Tags:           tags,
-		AltTexts:       alts,
 	}); err != nil {
 		h.internalError(w, r, "投稿の更新に失敗した", err)
 		return
@@ -378,7 +363,6 @@ func toAPIPost(p domain.Post, viewerID uint64, isLiked bool) gen.Post {
 	for _, m := range p.Media {
 		media = append(media, gen.Media{
 			Id:        int64(m.ID),
-			AltText:   m.AltText,
 			Width:     m.Width,
 			Height:    m.Height,
 			ThumbUrl:  m.ThumbURL,
@@ -397,7 +381,7 @@ func toAPIPost(p domain.Post, viewerID uint64, isLiked bool) gen.Post {
 		Body:         p.Body,
 		Prefecture:   toAPIPrefecture(p.Prefecture),
 		SpotName:     p.SpotName,
-		VisitedOn:    openapiDate(p.VisitedOn),
+		VisitedOn:    optionalOpenapiDate(p.VisitedOn),
 		Media:        media,
 		Tags:         tags,
 		LikeCount:    p.LikeCount,
@@ -422,7 +406,7 @@ const (
 	maxMediaPerPost  = 4
 )
 
-func validatePostFields(body, prefectureCode string, spot *string, visitedOn, now time.Time) string {
+func validatePostFields(body, prefectureCode string, spot *string, visitedOn *time.Time, now time.Time) string {
 	if n := utf8.RuneCountInString(strings.TrimSpace(body)); n < 1 || n > maxBodyRunes {
 		return "本文は1〜1000文字にしてください"
 	}
@@ -432,13 +416,14 @@ func validatePostFields(body, prefectureCode string, spot *string, visitedOn, no
 	if spot != nil && utf8.RuneCountInString(*spot) > maxSpotNameRunes {
 		return "スポット名は100文字までにしてください"
 	}
-	if visitedOn.IsZero() {
-		return "訪問日を入力してください"
-	}
-	// 未来の訪問日は受け付けない。「行った記録」であるため。
-	// 日付単位で比較する（時刻を持たない概念のため）。
-	if visitedOn.After(now.UTC().Truncate(24*time.Hour).AddDate(0, 0, 1)) {
-		return "訪問日に未来の日付は指定できません"
+	// **訪問日は任意である。** 覚えていない・特定の日に紐づかない投稿もある。
+	// 省略された投稿は旅行履歴（訪問日順）に出ない。
+	if visitedOn != nil {
+		// 未来の訪問日は受け付けない。「行った記録」であるため。
+		// 日付単位で比較する（時刻を持たない概念のため）。
+		if visitedOn.After(now.UTC().Truncate(24*time.Hour).AddDate(0, 0, 1)) {
+			return "訪問日に未来の日付は指定できません"
+		}
 	}
 	return ""
 }
@@ -453,33 +438,6 @@ func validateMediaInput(media []gen.PostMediaInput) string {
 			return "同じ画像を複数回指定することはできません"
 		}
 		seen[m.MediaId] = struct{}{}
-		if msg := validateAltText(m.AltText); msg != "" {
-			return msg
-		}
-	}
-	return ""
-}
-
-func validateAltTexts(alts []gen.MediaAltText) string {
-	for _, m := range alts {
-		if msg := validateAltText(m.AltText); msg != "" {
-			return msg
-		}
-	}
-	return ""
-}
-
-// validateAltText は代替テキストを検証する。
-//
-// **空を許さない。** 写真が主役のサービスで代替テキストを任意にすると
-// 実質的に入力されず、画像が見えない利用者に何も伝わらなくなる。
-func validateAltText(alt string) string {
-	n := utf8.RuneCountInString(strings.TrimSpace(alt))
-	if n < 1 {
-		return "画像の説明（代替テキスト）を入力してください"
-	}
-	if n > maxAltTextRunes {
-		return "画像の説明は200文字までにしてください"
 	}
 	return ""
 }
@@ -531,8 +489,24 @@ func trimOptional(v *string) *string {
 //
 // 訪問日は「日」の概念であり時刻を持たない。生成された型は
 // 日付だけを JSON へ書き出す（YYYY-MM-DD）。
-func openapiDate(t time.Time) openapi_types.Date {
-	return openapi_types.Date{Time: t}
+// optionalDate は任意の訪問日を取り出す。未指定なら nil。
+//
+// **nil と「ゼロ値の日時」を区別する。** 値として持たせると
+// 「訪問日が無い」と「西暦1年に行った」の区別が付かなくなる。
+func optionalDate(d *openapi_types.Date) *time.Time {
+	if d == nil {
+		return nil
+	}
+	t := d.Time
+	return &t
+}
+
+// optionalOpenapiDate は任意の訪問日を応答の型に変える。
+func optionalOpenapiDate(t *time.Time) *openapi_types.Date {
+	if t == nil {
+		return nil
+	}
+	return &openapi_types.Date{Time: *t}
 }
 
 // ---------------------------------------------------------------------------

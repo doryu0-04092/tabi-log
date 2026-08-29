@@ -46,7 +46,7 @@ test.describe('フィードの切り替え', () => {
 	test('自分の投稿はフォロー中フィードに出ない', async ({ page }) => {
 		await signup(page);
 		const body = `自分の投稿 ${Date.now()}`;
-		await createPost(page, { body, prefecture: '北海道', alt: '北海道の写真' });
+		await createPost(page, { body, prefecture: '北海道' });
 
 		await page.goto('/');
 		await expect(page.getByText(body)).toBeVisible();
@@ -62,7 +62,7 @@ test.describe('フィードの切り替え', () => {
 		const other = await otherContext.newPage();
 		const target = await signup(other, { displayName: 'フィードに出る人' });
 		const body = `フォロー中フィードの投稿 ${Date.now()}`;
-		await createPost(other, { body, prefecture: '沖縄県', alt: '沖縄の写真' });
+		await createPost(other, { body, prefecture: '沖縄県' });
 		await otherContext.close();
 
 		await signup(page, { displayName: 'フィードを見る人' });
@@ -89,7 +89,7 @@ test.describe('フィードの切り替え', () => {
 		await signup(page);
 
 		await page.goto('/?tab=following');
-		await expect(page.getByRole('heading', { name: 'フィード', level: 1 })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'ホーム', level: 1 })).toBeVisible();
 
 		const results = await new AxeBuilder({ page })
 			.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])

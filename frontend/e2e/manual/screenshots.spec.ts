@@ -63,9 +63,9 @@ test('画面を撮影する', async ({ page }) => {
 		await page.goto('/posts/new');
 		await page.setInputFiles('#photos', { name: 'p.png', mimeType: 'image/png', buffer: PNG });
 		await page.getByText('使えます').waitFor({ timeout: 60_000 });
-		await page.getByLabel('画像1の説明（必須）').fill(alt);
+		await page.getByLabel('画像1の説明（任意）').fill(alt);
 		await page.getByLabel('都道府県（必須）').selectOption({ label: pref });
-		await page.getByLabel('訪問日（必須）').fill('2026-05-03');
+		await page.getByLabel('訪問日').fill('2026-05-03');
 		await page.getByLabel('本文（必須）').fill(body);
 		await page.getByLabel('タグ').fill('グルメ 海鮮');
 		await page.getByRole('button', { name: '投稿する' }).click();

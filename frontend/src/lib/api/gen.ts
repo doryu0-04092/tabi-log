@@ -1012,6 +1012,15 @@ export interface components {
              *     設定していなければ null。**画面は必ず未設定の場合を描けること。**
              */
             avatarUrl?: string | null;
+            /**
+             * @description 閲覧者がこの利用者をフォローしているか。
+             *
+             *     **一覧に出す利用者ぶんをまとめて解決している。** 投稿カードから
+             *     その場でフォローできるようにするために持たせている。
+             */
+            isFollowing?: boolean;
+            /** @description 閲覧者自身か。自分にフォローの導線を出さないために使う */
+            isMe?: boolean;
         };
         /** @description 一覧に並べる利用者。フォローの導線を出すための状態を含む */
         UserSummary: {
@@ -1163,35 +1172,30 @@ export interface components {
              * Format: date
              * @description 訪問日。**投稿日とは別の軸である。** 旅行から帰ったあとに
              *     まとめて投稿するのが自然な使われ方のため。未来日は受け付けない。
+             *
+             *     **任意である。** 覚えていない・特定の日に紐づかない投稿もあるため。
+             *     **省略した投稿は旅行履歴（訪問日順）に出ない。**
+             *     並べる軸そのものが無いためである。
              */
-            visitedOn: string;
+            visitedOn?: string | null;
             tags?: string[];
             media: components["schemas"]["PostMediaInput"][];
         };
-        /** @description 画像の差し替えはできない。代替テキストのみ変更できる */
+        /** @description 画像の差し替えはできない。本文・都道府県・スポット名・訪問日・タグを変える。 */
         UpdatePostRequest: {
             body: string;
             prefectureCode: string;
             spotName?: string | null;
-            /** Format: date */
-            visitedOn: string;
+            /**
+             * Format: date
+             * @description null を送ると訪問日を消す
+             */
+            visitedOn?: string | null;
             tags?: string[];
-            /** @description 既にこの投稿に紐づいている画像の代替テキスト */
-            mediaAltTexts: components["schemas"]["MediaAltText"][];
         };
         PostMediaInput: {
             /** Format: int64 */
             mediaId: number;
-            /**
-             * @description **必須。** 写真が主役のサービスで代替テキストを任意にすると
-             *     実質的に入力されず、画像が見えない利用者に何も伝わらなくなる。
-             */
-            altText: string;
-        };
-        MediaAltText: {
-            /** Format: int64 */
-            mediaId: number;
-            altText: string;
         };
         MediaStatusResponse: {
             data: {
@@ -1257,8 +1261,11 @@ export interface components {
             body: string;
             prefecture: components["schemas"]["Prefecture"];
             spotName?: string | null;
-            /** Format: date */
-            visitedOn: string;
+            /**
+             * Format: date
+             * @description 訪問日。省略された投稿では null
+             */
+            visitedOn?: string | null;
             media: components["schemas"]["Media"][];
             tags: string[];
             likeCount: number;
@@ -1285,7 +1292,6 @@ export interface components {
         Media: {
             /** Format: int64 */
             id: number;
-            altText: string;
             width: number;
             height: number;
             /** @description 長辺320px。一覧で使う */

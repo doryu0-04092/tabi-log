@@ -1570,6 +1570,16 @@ components:
           description: |
             アバターの表示用URL（署名付き、有効期間つき）。
             設定していなければ null。**画面は必ず未設定の場合を描けること。**
+        isFollowing:
+          type: boolean
+          description: |
+            閲覧者がこの利用者をフォローしているか。
+
+            **一覧に出す利用者ぶんをまとめて解決している。** 投稿カードから
+            その場でフォローできるようにするために持たせている。
+        isMe:
+          type: boolean
+          description: 閲覧者自身か。自分にフォローの導線を出さないために使う
 
     # -----------------------------------------------------------------------
     # プロフィールとフォロー
@@ -1860,7 +1870,7 @@ components:
 
     CreatePostRequest:
       type: object
-      required: [body, prefectureCode, visitedOn, media]
+      required: [body, prefectureCode, media]
       properties:
         body:
           type: string
@@ -1878,9 +1888,14 @@ components:
         visitedOn:
           type: string
           format: date
+          nullable: true
           description: |
             訪問日。**投稿日とは別の軸である。** 旅行から帰ったあとに
             まとめて投稿するのが自然な使われ方のため。未来日は受け付けない。
+
+            **任意である。** 覚えていない・特定の日に紐づかない投稿もあるため。
+            **省略した投稿は旅行履歴（訪問日順）に出ない。**
+            並べる軸そのものが無いためである。
         tags:
           type: array
           maxItems: 5
@@ -1897,8 +1912,9 @@ components:
 
     UpdatePostRequest:
       type: object
-      required: [body, prefectureCode, visitedOn, mediaAltTexts]
-      description: 画像の差し替えはできない。代替テキストのみ変更できる
+      required: [body, prefectureCode]
+      description: |
+        画像の差し替えはできない。本文・都道府県・スポット名・訪問日・タグを変える。
       properties:
         body:
           type: string
@@ -1914,6 +1930,8 @@ components:
         visitedOn:
           type: string
           format: date
+          nullable: true
+          description: null を送ると訪問日を消す
         tags:
           type: array
           maxItems: 5
@@ -1921,38 +1939,14 @@ components:
             type: string
             minLength: 1
             maxLength: 50
-        mediaAltTexts:
-          type: array
-          description: 既にこの投稿に紐づいている画像の代替テキスト
-          items:
-            $ref: '#/components/schemas/MediaAltText'
 
     PostMediaInput:
       type: object
-      required: [mediaId, altText]
+      required: [mediaId]
       properties:
         mediaId:
           type: integer
           format: int64
-        altText:
-          type: string
-          description: |
-            **必須。** 写真が主役のサービスで代替テキストを任意にすると
-            実質的に入力されず、画像が見えない利用者に何も伝わらなくなる。
-          minLength: 1
-          maxLength: 200
-
-    MediaAltText:
-      type: object
-      required: [mediaId, altText]
-      properties:
-        mediaId:
-          type: integer
-          format: int64
-        altText:
-          type: string
-          minLength: 1
-          maxLength: 200
 
     MediaStatusResponse:
       type: object
@@ -2065,7 +2059,6 @@ components:
           author,
           body,
           prefecture,
-          visitedOn,
           media,
           tags,
           likeCount,
@@ -2090,6 +2083,8 @@ components:
         visitedOn:
           type: string
           format: date
+          nullable: true
+          description: 訪問日。省略された投稿では null
         media:
           type: array
           items:
@@ -2125,13 +2120,11 @@ components:
 
     Media:
       type: object
-      required: [id, altText, width, height, thumbUrl, mediumUrl]
+      required: [id, width, height, thumbUrl, mediumUrl]
       properties:
         id:
           type: integer
           format: int64
-        altText:
-          type: string
         width:
           type: integer
         height:

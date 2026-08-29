@@ -176,7 +176,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		cursor: pointer;
 	}

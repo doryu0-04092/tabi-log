@@ -132,7 +132,7 @@ func (s *PostStore) ListUserTravels(
 ) ([]domain.Post, TravelCursor, error) {
 	rows, err := s.q.ListTravelsByUserBefore(ctx, dbgen.ListTravelsByUserBeforeParams{
 		UserID:    userID,
-		VisitedOn: cursor.VisitedOn,
+		VisitedOn: sql.NullTime{Time: cursor.VisitedOn, Valid: true},
 		ID:        cursor.ID,
 		Limit:     int32(limit + 1),
 	})
@@ -157,7 +157,7 @@ func (s *PostStore) ListUserTravels(
 	var next TravelCursor
 	if hasMore && len(rows) > 0 {
 		last := rows[len(rows)-1]
-		next = TravelCursor{VisitedOn: last.VisitedOn, ID: last.ID}
+		next = TravelCursor{VisitedOn: last.VisitedOn.Time, ID: last.ID}
 	}
 	return posts, next, nil
 }
@@ -278,7 +278,7 @@ func (s *PostStore) assemble(
 				Region:   r.Region,
 			},
 			SpotName:     nullStringToPtr(r.SpotName),
-			VisitedOn:    r.VisitedOn,
+			VisitedOn:    nullTimeToPtr(r.VisitedOn),
 			Media:        mediaByPost[r.ID],
 			Tags:         tagsByPost[r.ID],
 			LikeCount:    int(r.LikeCount),
@@ -328,7 +328,6 @@ func (s *PostStore) mediaByPost(
 		postID := uint64(m.PostID.Int64)
 		out[postID] = append(out[postID], domain.PostMedia{
 			ID:        m.ID,
-			AltText:   m.AltText.String,
 			Width:     int(m.Width.Int32),
 			Height:    int(m.Height.Int32),
 			ThumbURL:  thumb,

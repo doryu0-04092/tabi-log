@@ -11,6 +11,7 @@
 		uploadImage,
 		type Prefecture
 	} from '$lib/api/posts';
+	import BackLink from '$lib/components/BackLink.svelte';
 	import '$lib/styles/forms.css';
 
 	/**
@@ -24,7 +25,6 @@
 	type Selected = {
 		file: File;
 		previewUrl: string;
-		altText: string;
 		mediaId: number | null;
 		state: 'uploading' | 'ready' | 'failed';
 		error?: string;
@@ -82,7 +82,6 @@
 			const entry: Selected = {
 				file,
 				previewUrl: URL.createObjectURL(file),
-				altText: '',
 				mediaId: null,
 				state: 'uploading'
 			};
@@ -132,20 +131,15 @@
 			error = '画像の準備が終わるまでお待ちください';
 			return;
 		}
-		if (selected.some((s) => s.altText.trim() === '')) {
-			error = 'すべての画像に説明（代替テキスト）を入力してください';
-			return;
-		}
-
 		submitting = true;
 		try {
 			const post = await createPost({
 				body,
 				prefectureCode,
 				spotName: spotName.trim() === '' ? null : spotName,
-				visitedOn,
+				visitedOn: visitedOn === '' ? null : visitedOn,
 				tags: parseTags(tagsInput),
-				media: selected.map((s) => ({ mediaId: s.mediaId as number, altText: s.altText }))
+				media: selected.map((s) => ({ mediaId: s.mediaId as number }))
 			});
 			await goto(resolve('/posts/[postId]', { postId: String(post.id) }));
 		} catch (e) {
@@ -198,24 +192,6 @@
 						<img src={item.previewUrl} alt="" width="96" height="96" />
 
 						<div class="photo-fields">
-							<!--
-								代替テキストは必須。写真が主役のサービスで任意にすると
-								実質的に入力されず、画像が見えない利用者に何も伝わらない。
-							-->
-							<label for="alt-{i}">画像{i + 1}の説明（必須）</label>
-							<input
-								id="alt-{i}"
-								type="text"
-								value={item.altText}
-								oninput={(e) => update(item, { altText: e.currentTarget.value })}
-								maxlength="200"
-								disabled={submitting}
-								aria-describedby="alt-hint-{i}"
-							/>
-							<p class="hint" id="alt-hint-{i}">
-								写真に何が写っているかを書きます。画像が見えない方に伝わります。
-							</p>
-
 							<!-- 状態は色ではなく文言で示す。 -->
 							<p class="status" data-state={item.state}>
 								{#if item.state === 'uploading'}
@@ -234,6 +210,8 @@
 					</li>
 				{/each}
 			</ul>
+
+			<BackLink label="ホーム" href={resolve('/')} />
 		{/if}
 	</fieldset>
 
@@ -261,18 +239,21 @@
 	</div>
 
 	<div class="field">
-		<label for="visited">訪問日（必須）</label>
+		<label for="visited">訪問日</label>
 		<input
 			id="visited"
 			type="date"
 			bind:value={visitedOn}
 			max={today}
-			required
 			disabled={submitting}
 			aria-describedby="visited-hint"
 		/>
 		<!-- 投稿日とは別の軸であることを伝える。 -->
-		<p class="hint" id="visited-hint">実際に訪れた日です。投稿した日とは別に記録されます。</p>
+		<!-- 投稿日とは別の軸であることと、省略したときの影響を伝える。 -->
+		<p class="hint" id="visited-hint">
+			実際に訪れた日です。投稿した日とは別に記録されます。任意ですが、
+			<strong>入れないとプロフィールの「訪問日順」には出ません。</strong>
+		</p>
 	</div>
 
 	<div class="field">
@@ -303,7 +284,7 @@
 	fieldset {
 		margin: 0;
 		padding: var(--space-4);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 	}
 
@@ -326,7 +307,7 @@
 		gap: var(--space-4);
 		align-items: flex-start;
 		padding: var(--space-3);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 	}
 
@@ -345,19 +326,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
-	}
-
-	.photo-fields label {
-		font-weight: 600;
-	}
-
-	.photo-fields input {
-		padding: var(--space-2) var(--space-3);
-		font: inherit;
-		color: var(--color-text);
-		background: var(--color-bg);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius);
 	}
 
 	.status {
@@ -381,7 +349,7 @@
 		font-size: 0.875rem;
 		color: var(--color-text);
 		background: transparent;
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		cursor: pointer;
 	}
@@ -392,7 +360,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: var(--color-bg);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 	}
 

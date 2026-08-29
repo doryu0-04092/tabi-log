@@ -1,0 +1,11 @@
+-- 訪問日を任意にする。
+--
+-- 覚えていない・特定の日に紐づかない投稿もあるため、入力を必須にしない
+-- 判断に変えた（2026-08-29）。
+--
+-- **旅行履歴（訪問日順）には出さない。** 並べる軸そのものが無いためである。
+-- クエリ側で visited_on IS NOT NULL を条件に加える。
+--
+-- 索引 ix_posts_user_visited_id はそのまま使える。NULL は索引に載るが、
+-- IS NOT NULL の条件で除かれる。
+ALTER TABLE posts MODIFY COLUMN visited_on DATE NULL;

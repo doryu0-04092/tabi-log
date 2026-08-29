@@ -8,15 +8,16 @@ test.describe('投稿', () => {
 		await signup(page, { displayName: '投稿する人' });
 		await createPost(page, {
 			body: '函館の朝市で海鮮丼を食べた',
-			prefecture: '北海道',
-			alt: '海鮮丼の写真'
+			prefecture: '北海道'
 		});
 
 		await expect(page.getByText('函館の朝市で海鮮丼を食べた')).toBeVisible();
 		await expect(page.getByText('北海道').first()).toBeVisible();
 		await expect(page.getByText('訪問 2026年5月3日')).toBeVisible();
-		// 代替テキストが画像に付いていること。
-		await expect(page.getByAltText('海鮮丼の写真')).toBeVisible();
+		// **画像の説明は入力させない方針にしたため alt は空である。**
+		// 属性ごと消すと HTML として不正になり、読み上げがファイル名を
+		// 読み上げてしまうので、alt="" は残している。
+		await expect(page.locator('.photo-list img[alt=""]').first()).toBeVisible();
 	});
 
 	// **処理が終わる前は投稿させない。**
@@ -40,7 +41,9 @@ test.describe('投稿', () => {
 		await expect(submit).toBeEnabled();
 	});
 
-	test('代替テキストが空だと投稿できない', async ({ page }) => {
+	// **訪問日は任意になった**（2026-08-29）。覚えていない・特定の日に
+	// 紐づかない投稿もあるため。省略した投稿は旅行履歴に出ない。
+	test('訪問日を空のままでも投稿できる', async ({ page }) => {
 		await signup(page);
 		await page.goto('/posts/new');
 		await page.setInputFiles('#photos', {
@@ -50,13 +53,15 @@ test.describe('投稿', () => {
 		});
 		await expect(page.getByText('使えます')).toBeVisible({ timeout: 30_000 });
 
+		const body = `説明も訪問日も無い投稿 ${Date.now()}`;
 		await page.getByLabel('都道府県（必須）').selectOption({ label: '東京都' });
-		await page.getByLabel('訪問日（必須）').fill('2026-05-03');
-		await page.getByLabel('本文（必須）').fill('説明を入れずに投稿する');
+		await page.getByLabel('本文（必須）').fill(body);
 		await page.getByRole('button', { name: '投稿する' }).click();
 
-		await expect(page.getByRole('alert')).toContainText('代替テキスト');
-		await expect(page).toHaveURL('/posts/new');
+		await expect(page).toHaveURL(/\/posts\/\d+$/);
+		await expect(page.getByText(body)).toBeVisible();
+		// **訪問日が無い投稿では「訪問 ◯年◯月◯日」を出さない。**
+		await expect(page.getByText(/^訪問 /)).toBeHidden();
 	});
 
 	// 訪問日は「行った記録」なので未来を選べてはいけない。
@@ -65,7 +70,7 @@ test.describe('投稿', () => {
 		await page.goto('/posts/new');
 
 		const today = new Date().toISOString().slice(0, 10);
-		await expect(page.getByLabel('訪問日（必須）')).toHaveAttribute('max', today);
+		await expect(page.getByLabel('訪問日')).toHaveAttribute('max', today);
 	});
 
 	test('投稿がフィードに出る', async ({ page }) => {
@@ -74,18 +79,18 @@ test.describe('投稿', () => {
 		// **本文は実行ごとに一意にする。** 固定の文言だと、過去の実行で作られた
 		// 投稿とも一致し、セレクタが複数の要素を掴んで落ちる。
 		const body = `フィードに出るはずの投稿 ${Date.now()}`;
-		const alt = `沖縄の海 ${Date.now()}`;
 
-		await createPost(page, { body, prefecture: '沖縄県', alt });
+		await createPost(page, { body, prefecture: '沖縄県' });
 
 		await page.goto('/');
 		await expect(page.getByText(body)).toBeVisible();
-		await expect(page.getByAltText(alt)).toBeVisible();
+		const card = page.getByRole('article').filter({ hasText: body });
+		await expect(card.locator('.photo-list img').first()).toBeVisible();
 	});
 
 	test('自分の投稿は削除できる', async ({ page }) => {
 		await signup(page);
-		await createPost(page, { body: '削除する投稿', prefecture: '京都府', alt: '京都の写真' });
+		await createPost(page, { body: '削除する投稿', prefecture: '京都府' });
 
 		await page.getByRole('button', { name: 'この投稿を削除する' }).click();
 		// 取り消せない操作なので一段挟む。
@@ -100,7 +105,7 @@ test.describe('投稿', () => {
 	// （権限の担保はサーバー側で行っており、これは表示の確認）
 	test('他人の投稿には削除ボタンが出ない', async ({ page, browser, baseURL }) => {
 		await signup(page, { displayName: '投稿者' });
-		await createPost(page, { body: '他人が見る投稿', prefecture: '大阪府', alt: '大阪の写真' });
+		await createPost(page, { body: '他人が見る投稿', prefecture: '大阪府' });
 		const url = page.url();
 
 		// **別のブラウザコンテキストで開く。** 同じコンテキストだと Cookie を共有し、
@@ -132,7 +137,7 @@ test.describe('投稿', () => {
 
 	test('投稿詳細にアクセシビリティ違反が無い', async ({ page }) => {
 		await signup(page);
-		await createPost(page, { body: '検査用の投稿', prefecture: '長野県', alt: '長野の写真' });
+		await createPost(page, { body: '検査用の投稿', prefecture: '長野県' });
 
 		const results = await new AxeBuilder({ page })
 			.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])

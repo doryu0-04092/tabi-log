@@ -30,7 +30,7 @@ test.describe('アバター', () => {
 
 		await page.goto(`/users/${me.handle}`);
 		// **画像は装飾なので alt は空。** 名前は隣に文字で出ている。
-		await expect(page.locator('header img[alt=""]')).toBeVisible();
+		await expect(page.locator('header img.avatar')).toBeVisible();
 	});
 
 	test('投稿カードにも出る', async ({ page }) => {
@@ -38,12 +38,13 @@ test.describe('アバター', () => {
 		await setAvatar(page);
 
 		const body = `アバター付きの投稿 ${Date.now()}`;
-		await createPost(page, { body, prefecture: '北海道', alt: '北海道の写真' });
+		await createPost(page, { body, prefecture: '北海道' });
 
 		await page.goto('/');
 		const card = page.getByRole('article').filter({ hasText: body });
-		// 投稿写真（alt あり）とアバター（alt 空）の2枚がある。
-		await expect(card.locator('img[alt=""]')).toBeVisible();
+		// **投稿写真とアバターはどちらも alt が空である。**
+		// 見分けが付くよう、アバターの持つ丸い形（.avatar）で絞る。
+		await expect(card.locator('img.avatar')).toBeVisible();
 	});
 
 	test('外すと消える', async ({ page }) => {
@@ -55,7 +56,7 @@ test.describe('アバター', () => {
 
 		// **サーバー側に残っていないこと。**
 		await page.goto(`/users/${me.handle}`);
-		await expect(page.locator('header img[alt=""]')).toBeHidden();
+		await expect(page.locator('header img.avatar')).toBeHidden();
 	});
 
 	test('画像の種類を選べる旨と EXIF の扱いを伝える', async ({ page }) => {

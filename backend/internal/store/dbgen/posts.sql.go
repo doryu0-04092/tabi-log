@@ -23,7 +23,7 @@ type CreatePostParams struct {
 	Body           string
 	PrefectureCode string
 	SpotName       sql.NullString
-	VisitedOn      time.Time
+	VisitedOn      sql.NullTime
 }
 
 // 投稿。
@@ -69,7 +69,7 @@ type GetPostByIDRow struct {
 	Body               string
 	PrefectureCode     string
 	SpotName           sql.NullString
-	VisitedOn          time.Time
+	VisitedOn          sql.NullTime
 	LikeCount          uint32
 	CommentCount       uint32
 	CreatedAt          time.Time
@@ -145,7 +145,7 @@ type ListFollowingFeedBeforeRow struct {
 	Body               string
 	PrefectureCode     string
 	SpotName           sql.NullString
-	VisitedOn          time.Time
+	VisitedOn          sql.NullTime
 	LikeCount          uint32
 	CommentCount       uint32
 	CreatedAt          time.Time
@@ -235,7 +235,7 @@ type ListPostsBeforeRow struct {
 	Body               string
 	PrefectureCode     string
 	SpotName           sql.NullString
-	VisitedOn          time.Time
+	VisitedOn          sql.NullTime
 	LikeCount          uint32
 	CommentCount       uint32
 	CreatedAt          time.Time
@@ -316,7 +316,7 @@ type ListPostsByIDsRow struct {
 	Body               string
 	PrefectureCode     string
 	SpotName           sql.NullString
-	VisitedOn          time.Time
+	VisitedOn          sql.NullTime
 	LikeCount          uint32
 	CommentCount       uint32
 	CreatedAt          time.Time
@@ -409,7 +409,7 @@ type ListPostsByUserBeforeRow struct {
 	Body               string
 	PrefectureCode     string
 	SpotName           sql.NullString
-	VisitedOn          time.Time
+	VisitedOn          sql.NullTime
 	LikeCount          uint32
 	CommentCount       uint32
 	CreatedAt          time.Time
@@ -479,6 +479,8 @@ FROM posts p
 JOIN users u ON u.id = p.user_id
 JOIN prefectures pref ON pref.code = p.prefecture_code
 WHERE p.user_id = ?
+  -- **訪問日の無い投稿は出さない。** 並べる軸そのものが無い。
+  AND p.visited_on IS NOT NULL
   AND (p.visited_on < ?
        OR (p.visited_on = ? AND p.id < ?))
 ORDER BY p.visited_on DESC, p.id DESC
@@ -487,7 +489,7 @@ LIMIT ?
 
 type ListTravelsByUserBeforeParams struct {
 	UserID    uint64
-	VisitedOn time.Time
+	VisitedOn sql.NullTime
 	ID        uint64
 	Limit     int32
 }
@@ -498,7 +500,7 @@ type ListTravelsByUserBeforeRow struct {
 	Body               string
 	PrefectureCode     string
 	SpotName           sql.NullString
-	VisitedOn          time.Time
+	VisitedOn          sql.NullTime
 	LikeCount          uint32
 	CommentCount       uint32
 	CreatedAt          time.Time
@@ -576,7 +578,7 @@ type UpdatePostParams struct {
 	Body           string
 	PrefectureCode string
 	SpotName       sql.NullString
-	VisitedOn      time.Time
+	VisitedOn      sql.NullTime
 	ID             uint64
 	UserID         uint64
 }

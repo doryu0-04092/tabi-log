@@ -79,7 +79,7 @@
 	</p>
 {:else}
 	<div class="head">
-		<h1>フィード</h1>
+		<h1>ホーム</h1>
 		<a class="new-post" href={resolve('/posts/new')}>投稿する</a>
 	</div>
 
@@ -160,7 +160,7 @@
 		display: flex;
 		gap: var(--space-2);
 		margin-bottom: var(--space-6);
-		border-bottom: 1px solid var(--color-border);
+		border-bottom: var(--line);
 	}
 
 	.tabs a {
@@ -210,7 +210,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		cursor: pointer;
 	}

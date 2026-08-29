@@ -11,7 +11,7 @@ test.describe('プロフィール', () => {
 	test('投稿者名から開ける', async ({ page }) => {
 		await signup(page, { displayName: 'プロフィールの人' });
 		const body = `プロフィールへの導線 ${Date.now()}`;
-		await createPost(page, { body, prefecture: '北海道', alt: '北海道の写真' });
+		await createPost(page, { body, prefecture: '北海道' });
 
 		await page
 			.getByRole('link', { name: /プロフィールの人/ })
@@ -26,7 +26,7 @@ test.describe('プロフィール', () => {
 	// **数字だけを並べない。** 何の数かが読み上げで分かる形にする。
 	test('件数が語とともに出る', async ({ page }) => {
 		const me = await signup(page, { displayName: '件数の人' });
-		await createPost(page, { body: '件数の検査', prefecture: '沖縄県', alt: '沖縄の写真' });
+		await createPost(page, { body: '件数の検査', prefecture: '沖縄県' });
 
 		await page.goto(`/users/${me.handle}`);
 		await expect(page.getByRole('heading', { name: '件数の人', level: 1 })).toBeVisible();
@@ -57,7 +57,7 @@ test.describe('プロフィール', () => {
 
 	test('プロフィールにアクセシビリティ違反が無い', async ({ page }) => {
 		await signup(page, { displayName: '検査の人' });
-		await createPost(page, { body: '検査用の投稿', prefecture: '長野県', alt: '長野の写真' });
+		await createPost(page, { body: '検査用の投稿', prefecture: '長野県' });
 		await page
 			.getByRole('link', { name: /検査の人/ })
 			.first()
@@ -126,8 +126,9 @@ test.describe('フォロー', () => {
 		// 相手のフォロワー一覧に自分が出る。
 		await page.goto(`/users/${target.handle}/followers`);
 		await expect(page.getByRole('heading', { name: 'フォロワー', level: 1 })).toBeVisible();
-		// **リンクで掴む。** 表示名だけだとヘッダーに出ている自分の名前とも一致する。
-		await expect(page.getByRole('link', { name: /一覧を見る人/ })).toBeVisible();
+		// **本文の中で掴む。** ヘッダーの表示名も自分のプロフィールへのリンクなので、
+		// 画面全体から探すと2つ見つかる。
+		await expect(page.locator('#main').getByRole('link', { name: /一覧を見る人/ })).toBeVisible();
 
 		// 自分のフォロー中一覧に相手が出る。
 		await page.goto(`/users/${me.handle}/following`);

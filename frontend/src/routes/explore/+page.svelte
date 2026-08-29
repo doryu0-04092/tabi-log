@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { listPrefectures, searchPosts, type Post, type Prefecture } from '$lib/api/posts';
 	import { searchUsers, type UserSummary } from '$lib/api/users';
 	import { session } from '$lib/auth/session.svelte';
+	import BackLink from '$lib/components/BackLink.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import FollowButton from '$lib/components/FollowButton.svelte';
 	import PostCard from '$lib/components/PostCard.svelte';
@@ -20,6 +22,15 @@
 		| { kind: 'error'; message: string };
 
 	let results = $state<Results>({ kind: 'idle' });
+
+	/**
+	 * 結果の見出し。検索が終わったらここへ移動する。
+	 *
+	 * **ヘッダーの簡易検索から来ると、画面の先頭に着地する。**
+	 * 結果は入力欄の下にあるため、そのままだと「検索できたのか」が分からない。
+	 * 見た目を動かすだけでなく、フォーカスも移して読み上げにも伝える。
+	 */
+	let resultsHeading = $state<HTMLElement | null>(null);
 	let loadingMore = $state(false);
 	let prefectures = $state<Prefecture[]>([]);
 
@@ -91,6 +102,11 @@
 		} catch {
 			results = { kind: 'error', message: '検索できませんでした' };
 		}
+
+		// 結果が描かれてから移動する。
+		await tick();
+		resultsHeading?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		resultsHeading?.focus();
 	}
 
 	async function loadMore() {
@@ -170,15 +186,15 @@
 </script>
 
 <svelte:head>
-	<title>発見 — tabi-log</title>
+	<title>詳細検索 — tabi-log</title>
 </svelte:head>
 
 {#if !session.restored}
 	<p>読み込んでいます…</p>
 {:else if !session.isAuthenticated}
-	<p>発見を使うには <a href={resolve('/login')}>ログイン</a> が必要です。</p>
+	<p>検索を使うには <a href={resolve('/login')}>ログイン</a> が必要です。</p>
 {:else}
-	<h1>発見</h1>
+	<h1>詳細検索</h1>
 
 	<form onsubmit={submit}>
 		<div class="field">
@@ -227,14 +243,18 @@
 			<p class="error" role="alert"><span aria-hidden="true">✕</span> {formError}</p>
 		{/if}
 
-		<button type="submit">探す</button>
+		<button type="submit">この条件で探す</button>
 	</form>
 
 	<section aria-labelledby="results-heading">
-		<h2 id="results-heading">結果</h2>
+		<!-- tabindex="-1" はフォーカスを移すためだけのもの。Tab では止まらない。 -->
+		<h2 id="results-heading" bind:this={resultsHeading} tabindex="-1">結果</h2>
 
 		{#if results.kind === 'idle'}
-			<p class="hint">条件を入れて「探す」を押してください。</p>
+			<!-- 簡単な検索はヘッダーで完結する。ここは絞り込みを重ねる場である。 -->
+			<p class="hint">
+				条件を入れて「探す」を押してください。語だけで探すなら、上の検索窓でも探せます。
+			</p>
 		{:else if results.kind === 'loading'}
 			<p>読み込んでいます…</p>
 		{:else if results.kind === 'error'}
@@ -283,6 +303,8 @@
 			{/if}
 		{/if}
 	</section>
+
+	<BackLink label="ホーム" href={resolve('/')} />
 {/if}
 
 <style>
@@ -316,7 +338,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: var(--color-bg);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 	}
 
@@ -327,7 +349,7 @@
 		align-items: center;
 		margin: 0;
 		padding: var(--space-3);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 	}
 
@@ -367,6 +389,12 @@
 
 	h2 {
 		font-size: 1.125rem;
+	}
+
+	/* プログラム的にフォーカスするための tabindex="-1" が
+	   輪郭を描かないようにする。利用者が Tab で辿り着く要素ではない。 */
+	h2:focus {
+		outline: none;
 	}
 
 	.empty {
@@ -429,7 +457,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: var(--color-surface);
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		cursor: pointer;
 	}

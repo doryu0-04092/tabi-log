@@ -19,7 +19,7 @@ test.describe('都道府県制覇マップ', () => {
 	// **各マスは県名と件数を読み上げられる。** 色だけでは何も伝わらない。
 	test('マスに県名と件数のラベルが付く', async ({ page }) => {
 		const me = await signup(page, { displayName: 'ラベルの人' });
-		await createPost(page, { body: 'マップの検査', prefecture: '北海道', alt: '北海道の写真' });
+		await createPost(page, { body: 'マップの検査', prefecture: '北海道' });
 
 		await page.goto(`/users/${me.handle}`);
 		await expect(page.getByRole('link', { name: '北海道 1件（訪問済み）' })).toBeVisible();
@@ -28,12 +28,12 @@ test.describe('都道府県制覇マップ', () => {
 
 	test('投稿すると制覇率が上がる', async ({ page }) => {
 		const me = await signup(page, { displayName: '制覇する人' });
-		await createPost(page, { body: '1県目', prefecture: '北海道', alt: '北海道の写真' });
+		await createPost(page, { body: '1県目', prefecture: '北海道' });
 
 		await page.goto(`/users/${me.handle}`);
 		await expect(page.getByText('1 / 47 県（2%）')).toBeVisible();
 
-		await createPost(page, { body: '2県目', prefecture: '沖縄県', alt: '沖縄の写真' });
+		await createPost(page, { body: '2県目', prefecture: '沖縄県' });
 		await page.goto(`/users/${me.handle}`);
 		await expect(page.getByText('2 / 47 県（4%）')).toBeVisible();
 	});
@@ -41,8 +41,8 @@ test.describe('都道府県制覇マップ', () => {
 	// **同じ県に2件投稿しても制覇数は増えない。** 数えるのは種類である。
 	test('同じ県に複数投稿しても制覇数は増えない', async ({ page }) => {
 		const me = await signup(page, { displayName: '同じ県の人' });
-		await createPost(page, { body: '1件目', prefecture: '京都府', alt: '京都の写真1' });
-		await createPost(page, { body: '2件目', prefecture: '京都府', alt: '京都の写真2' });
+		await createPost(page, { body: '1件目', prefecture: '京都府' });
+		await createPost(page, { body: '2件目', prefecture: '京都府' });
 
 		await page.goto(`/users/${me.handle}`);
 		await expect(page.getByText('1 / 47 県（2%）')).toBeVisible();
@@ -52,7 +52,7 @@ test.describe('都道府県制覇マップ', () => {
 	// **色の違いだけで情報を伝えない。** 同じ内容を表でも出す。
 	test('同じ内容を表でも見られる', async ({ page }) => {
 		const me = await signup(page, { displayName: '表で見る人' });
-		await createPost(page, { body: '表の検査', prefecture: '長野県', alt: '長野の写真' });
+		await createPost(page, { body: '表の検査', prefecture: '長野県' });
 
 		await page.goto(`/users/${me.handle}`);
 		const toggle = page.getByRole('button', { name: '同じ内容を表で見る' });
@@ -68,7 +68,7 @@ test.describe('都道府県制覇マップ', () => {
 	test('マスから都道府県別の一覧へ行ける', async ({ page }) => {
 		const me = await signup(page, { displayName: '県へ飛ぶ人' });
 		const body = `県別一覧の投稿 ${Date.now()}`;
-		await createPost(page, { body, prefecture: '広島県', alt: '広島の写真' });
+		await createPost(page, { body, prefecture: '広島県' });
 
 		await page.goto(`/users/${me.handle}`);
 		await page.getByRole('link', { name: '広島県 1件（訪問済み）' }).click();
@@ -81,7 +81,7 @@ test.describe('都道府県制覇マップ', () => {
 	// 投稿カードの都道府県からも同じ一覧へ行ける（行き先の無いリンクを残さない）。
 	test('投稿カードの都道府県から一覧へ行ける', async ({ page }) => {
 		await signup(page, { displayName: 'カードから飛ぶ人' });
-		await createPost(page, { body: 'カードの検査', prefecture: '愛知県', alt: '愛知の写真' });
+		await createPost(page, { body: 'カードの検査', prefecture: '愛知県' });
 
 		await page.getByRole('link', { name: '愛知県' }).first().click();
 		await expect(page).toHaveURL('/prefectures/23');
@@ -98,7 +98,7 @@ test.describe('都道府県制覇マップ', () => {
 
 	test('マップにアクセシビリティ違反が無い', async ({ page }) => {
 		const me = await signup(page, { displayName: '検査する人' });
-		await createPost(page, { body: '検査用の投稿', prefecture: '福岡県', alt: '福岡の写真' });
+		await createPost(page, { body: '検査用の投稿', prefecture: '福岡県' });
 
 		await page.goto(`/users/${me.handle}`);
 		await expect(page.getByRole('heading', { name: '都道府県制覇マップ' })).toBeVisible();
@@ -115,7 +115,7 @@ test.describe('都道府県制覇マップ', () => {
 
 	test('都道府県別の一覧にアクセシビリティ違反が無い', async ({ page }) => {
 		await signup(page);
-		await createPost(page, { body: '県別の検査', prefecture: '石川県', alt: '石川の写真' });
+		await createPost(page, { body: '県別の検査', prefecture: '石川県' });
 
 		await page.goto('/prefectures/17');
 		await expect(page.getByRole('heading', { name: '石川県の投稿', level: 1 })).toBeVisible();

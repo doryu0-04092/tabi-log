@@ -13,7 +13,7 @@ import (
 
 const attachMediaToPost = `-- name: AttachMediaToPost :execresult
 UPDATE media
-SET post_id = ?, alt_text = ?, sort_order = ?
+SET post_id = ?, sort_order = ?
 WHERE id = ?
   AND user_id = ?
   AND post_id IS NULL
@@ -22,7 +22,6 @@ WHERE id = ?
 
 type AttachMediaToPostParams struct {
 	PostID    sql.NullInt64
-	AltText   sql.NullString
 	SortOrder uint8
 	ID        uint64
 	UserID    uint64
@@ -37,7 +36,6 @@ type AttachMediaToPostParams struct {
 func (q *Queries) AttachMediaToPost(ctx context.Context, arg AttachMediaToPostParams) (sql.Result, error) {
 	return q.db.ExecContext(ctx, attachMediaToPost,
 		arg.PostID,
-		arg.AltText,
 		arg.SortOrder,
 		arg.ID,
 		arg.UserID,
@@ -90,7 +88,7 @@ func (q *Queries) CreatePendingMedia(ctx context.Context, arg CreatePendingMedia
 }
 
 const getMediaByID = `-- name: GetMediaByID :one
-SELECT id, user_id, post_id, s3_key, mime, width, height, bytes, alt_text, sort_order, status
+SELECT id, user_id, post_id, s3_key, mime, width, height, bytes, sort_order, status
 FROM media
 WHERE id = ?
 `
@@ -104,7 +102,6 @@ type GetMediaByIDRow struct {
 	Width     sql.NullInt32
 	Height    sql.NullInt32
 	Bytes     sql.NullInt32
-	AltText   sql.NullString
 	SortOrder uint8
 	Status    MediaStatus
 }
@@ -121,7 +118,6 @@ func (q *Queries) GetMediaByID(ctx context.Context, id uint64) (GetMediaByIDRow,
 		&i.Width,
 		&i.Height,
 		&i.Bytes,
-		&i.AltText,
 		&i.SortOrder,
 		&i.Status,
 	)
@@ -129,7 +125,7 @@ func (q *Queries) GetMediaByID(ctx context.Context, id uint64) (GetMediaByIDRow,
 }
 
 const getMediaByS3Key = `-- name: GetMediaByS3Key :one
-SELECT id, user_id, post_id, s3_key, mime, width, height, bytes, alt_text, sort_order, status
+SELECT id, user_id, post_id, s3_key, mime, width, height, bytes, sort_order, status
 FROM media
 WHERE s3_key = ?
 `
@@ -143,7 +139,6 @@ type GetMediaByS3KeyRow struct {
 	Width     sql.NullInt32
 	Height    sql.NullInt32
 	Bytes     sql.NullInt32
-	AltText   sql.NullString
 	SortOrder uint8
 	Status    MediaStatus
 }
@@ -160,7 +155,6 @@ func (q *Queries) GetMediaByS3Key(ctx context.Context, s3Key string) (GetMediaBy
 		&i.Width,
 		&i.Height,
 		&i.Bytes,
-		&i.AltText,
 		&i.SortOrder,
 		&i.Status,
 	)
@@ -168,19 +162,18 @@ func (q *Queries) GetMediaByS3Key(ctx context.Context, s3Key string) (GetMediaBy
 }
 
 const listMediaByPostID = `-- name: ListMediaByPostID :many
-SELECT id, post_id, alt_text, width, height, s3_key
+SELECT id, post_id, width, height, s3_key
 FROM media
 WHERE post_id = ?
 ORDER BY sort_order, id
 `
 
 type ListMediaByPostIDRow struct {
-	ID      uint64
-	PostID  sql.NullInt64
-	AltText sql.NullString
-	Width   sql.NullInt32
-	Height  sql.NullInt32
-	S3Key   string
+	ID     uint64
+	PostID sql.NullInt64
+	Width  sql.NullInt32
+	Height sql.NullInt32
+	S3Key  string
 }
 
 func (q *Queries) ListMediaByPostID(ctx context.Context, postID sql.NullInt64) ([]ListMediaByPostIDRow, error) {
@@ -195,7 +188,6 @@ func (q *Queries) ListMediaByPostID(ctx context.Context, postID sql.NullInt64) (
 		if err := rows.Scan(
 			&i.ID,
 			&i.PostID,
-			&i.AltText,
 			&i.Width,
 			&i.Height,
 			&i.S3Key,
@@ -214,19 +206,18 @@ func (q *Queries) ListMediaByPostID(ctx context.Context, postID sql.NullInt64) (
 }
 
 const listMediaByPostIDs = `-- name: ListMediaByPostIDs :many
-SELECT id, post_id, alt_text, width, height, s3_key
+SELECT id, post_id, width, height, s3_key
 FROM media
 WHERE post_id IN (/*SLICE:post_ids*/?)
 ORDER BY post_id, sort_order, id
 `
 
 type ListMediaByPostIDsRow struct {
-	ID      uint64
-	PostID  sql.NullInt64
-	AltText sql.NullString
-	Width   sql.NullInt32
-	Height  sql.NullInt32
-	S3Key   string
+	ID     uint64
+	PostID sql.NullInt64
+	Width  sql.NullInt32
+	Height sql.NullInt32
+	S3Key  string
 }
 
 // 複数の投稿の画像をまとめて取る。
@@ -255,7 +246,6 @@ func (q *Queries) ListMediaByPostIDs(ctx context.Context, postIds []sql.NullInt6
 		if err := rows.Scan(
 			&i.ID,
 			&i.PostID,
-			&i.AltText,
 			&i.Width,
 			&i.Height,
 			&i.S3Key,
@@ -448,23 +438,5 @@ func (q *Queries) MarkMediaProcessed(ctx context.Context, arg MarkMediaProcessed
 		arg.Bytes,
 		arg.ID,
 	)
-	return err
-}
-
-const updateMediaAltText = `-- name: UpdateMediaAltText :exec
-UPDATE media
-SET alt_text = ?
-WHERE id = ? AND post_id = ?
-`
-
-type UpdateMediaAltTextParams struct {
-	AltText sql.NullString
-	ID      uint64
-	PostID  sql.NullInt64
-}
-
-// 代替テキストの更新（投稿の編集）。
-func (q *Queries) UpdateMediaAltText(ctx context.Context, arg UpdateMediaAltTextParams) error {
-	_, err := q.db.ExecContext(ctx, updateMediaAltText, arg.AltText, arg.ID, arg.PostID)
 	return err
 }

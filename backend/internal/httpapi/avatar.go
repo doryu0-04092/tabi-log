@@ -15,24 +15,27 @@ type AvatarRepository interface {
 	AvatarKeys(ctx context.Context, userIDs []uint64) (map[uint64]string, error)
 }
 
-// avatarResolver は応答に載せる利用者へアバターのURLを埋める。
+// avatarResolver は応答に載せる利用者へ、閲覧者ごとに変わる情報を埋める。
 //
-// **利用者は投稿・コメント・通知・一覧のあらゆる応答に出てくる。**
-// 埋める場所ごとに引き方を書くと、1か所だけ「1件ずつ引く」実装が
-// 紛れ込んでも気づけない。まとめて引く手順をここ1つに置く。
+// 埋めるのはアバターのURLと**フォローの状態**である。どちらも
+// 「誰が見ているか」で変わり、投稿・コメント・通知・一覧のあらゆる応答に
+// 出てくる。**埋める場所ごとに引き方を書くと、1か所だけ「1件ずつ引く」
+// 実装が紛れ込んでも気づけない。** まとめて引く手順をここ1つに置く。
 type avatarResolver struct {
 	repo    AvatarRepository
+	follows FollowRepository
 	storage ObjectStorage
 	logger  *slog.Logger
 }
 
-// fill は渡した利用者すべてにアバターのURLを埋める。
+// fill は渡した利用者すべてにアバターとフォローの状態を埋める。
 //
 // **1件ずつ引かない。** フィード20件に対して20回の往復になる。
-// 署名も鍵の数だけ行うが、これは通信を伴わない計算である。
+// 署名は鍵の数だけ行うが、これは通信を伴わない計算である。
 //
-// 失敗しても応答は返す。アバターが出ないだけで、投稿は読める。
-// 画像1つのために一覧全体を落とすのは割に合わない。
+// 失敗しても応答は返す。アバターが出ない・フォローの状態が分からない
+// だけで、投稿は読める。付随する情報のために一覧全体を落とすのは
+// 割に合わない。
 func (a *avatarResolver) fill(ctx context.Context, users []*gen.User) {
 	if a == nil || len(users) == 0 {
 		return
@@ -50,11 +53,30 @@ func (a *avatarResolver) fill(ctx context.Context, users []*gen.User) {
 	}
 
 	urls := a.urls(ctx, ids)
+
+	// **フォローの状態も閲覧者ごとに変わる。** 未認証（あり得ないが）や
+	// 取得に失敗した場合は false のままにし、導線を出さない側へ倒す。
+	viewerID, _ := UserIDFrom(ctx)
+	followed := map[uint64]bool{}
+	if viewerID != 0 && a.follows != nil {
+		got, err := a.follows.FollowedUserIDs(ctx, viewerID, ids)
+		if err != nil {
+			a.logger.ErrorContext(ctx, "フォローの状態を取得できない", slog.String("error", err.Error()))
+		} else {
+			followed = got
+		}
+	}
+
 	for _, u := range users {
-		if url, ok := urls[uint64(u.Id)]; ok {
+		id := uint64(u.Id)
+		if url, ok := urls[id]; ok {
 			v := url
 			u.AvatarUrl = &v
 		}
+		isFollowing := followed[id]
+		isMe := id == viewerID
+		u.IsFollowing = &isFollowing
+		u.IsMe = &isMe
 	}
 }
 

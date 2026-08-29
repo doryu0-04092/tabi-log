@@ -18,8 +18,11 @@ type Post struct {
 	SpotName *string
 
 	// VisitedOn は訪問日。**投稿日（CreatedAt）とは別の軸である。**
+	//
+	// **任意である（nil がありうる）。** 覚えていない・特定の日に
+	// 紐づかない投稿もあるため。nil の投稿は旅行履歴に出さない。
 	// 旅行から帰ったあとにまとめて投稿するのが自然な使われ方のため。
-	VisitedOn time.Time
+	VisitedOn *time.Time
 
 	Media []PostMedia
 	Tags  []string
@@ -36,10 +39,9 @@ type Post struct {
 
 // PostMedia は投稿に紐づいた画像1枚を表す。
 type PostMedia struct {
-	ID      uint64
-	AltText string
-	Width   int
-	Height  int
+	ID     uint64
+	Width  int
+	Height int
 
 	// ThumbURL / MediumURL は表示用の変換物への URL。
 	// **原本は配らない。** 原本には EXIF 除去前の情報が含まれる可能性があり、

@@ -4,6 +4,15 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<!--
+			ロゴだけに使う欧文の表示用書体。**本文には使わない。**
+			日本語のウェブフォントは数百KBになり、見た目の差に対して
+			読み込みの代償が大きい。display=swap なので、読めなくても
+			代替の書体で表示は成立する。
+		-->
+		<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" />
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

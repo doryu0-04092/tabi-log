@@ -44,9 +44,10 @@ export type NewPost = {
 	body: string;
 	prefectureCode: string;
 	spotName?: string | null;
-	visitedOn: string;
+	/** 訪問日。**任意である。** 省略すると旅行履歴（訪問日順）に出ない。 */
+	visitedOn: string | null;
 	tags: string[];
-	media: { mediaId: number; altText: string }[];
+	media: { mediaId: number }[];
 };
 
 export function createPost(input: NewPost): Promise<Post> {

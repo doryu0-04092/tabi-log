@@ -6,9 +6,9 @@ test.describe('発見', () => {
 	test('ヘッダーから開ける', async ({ page }) => {
 		await signup(page);
 
-		await page.getByRole('link', { name: '発見' }).click();
+		await page.getByRole('link', { name: '検索' }).click();
 		await expect(page).toHaveURL('/explore');
-		await expect(page.getByRole('heading', { name: '発見', level: 1 })).toBeVisible();
+		await expect(page.getByRole('heading', { name: '詳細検索', level: 1 })).toBeVisible();
 	});
 
 	// 条件が無いうちは全件を出さない。全件は「発見」ではない。
@@ -24,13 +24,12 @@ test.describe('発見', () => {
 		const word = `函館朝市${Date.now()}`;
 		await createPost(page, {
 			body: `${word}で海鮮丼を食べた`,
-			prefecture: '北海道',
-			alt: '海鮮丼'
+			prefecture: '北海道'
 		});
 
 		await page.goto('/explore');
 		await page.getByLabel('キーワード').fill(word);
-		await page.getByRole('button', { name: '探す' }).click();
+		await page.getByRole('button', { name: 'この条件で探す' }).click();
 
 		await expect(page.getByText(`${word}で海鮮丼を食べた`)).toBeVisible();
 	});
@@ -42,7 +41,7 @@ test.describe('発見', () => {
 
 		await page.goto('/explore');
 		await page.getByLabel('キーワード').fill('海');
-		await page.getByRole('button', { name: '探す' }).click();
+		await page.getByRole('button', { name: 'この条件で探す' }).click();
 
 		await expect(page.getByRole('alert')).toContainText('2文字以上');
 	});
@@ -51,12 +50,12 @@ test.describe('発見', () => {
 		await signup(page, { displayName: '絞り込む人' });
 		const hokkaido = `北海道の投稿 ${Date.now()}`;
 		const okinawa = `沖縄の投稿 ${Date.now()}`;
-		await createPost(page, { body: hokkaido, prefecture: '北海道', alt: '北海道の写真' });
-		await createPost(page, { body: okinawa, prefecture: '沖縄県', alt: '沖縄の写真' });
+		await createPost(page, { body: hokkaido, prefecture: '北海道' });
+		await createPost(page, { body: okinawa, prefecture: '沖縄県' });
 
 		await page.goto('/explore');
 		await page.getByLabel('都道府県').selectOption({ label: '沖縄県' });
-		await page.getByRole('button', { name: '探す' }).click();
+		await page.getByRole('button', { name: 'この条件で探す' }).click();
 
 		await expect(page.getByText(okinawa)).toBeVisible();
 		await expect(page.getByText(hokkaido)).toBeHidden();
@@ -66,11 +65,11 @@ test.describe('発見', () => {
 	test('条件が URL に残り、リロードしても同じ結果になる', async ({ page }) => {
 		await signup(page, { displayName: 'URL の人' });
 		const word = `URLに残る${Date.now()}`;
-		await createPost(page, { body: `${word}の投稿`, prefecture: '京都府', alt: '京都の写真' });
+		await createPost(page, { body: `${word}の投稿`, prefecture: '京都府' });
 
 		await page.goto('/explore');
 		await page.getByLabel('キーワード').fill(word);
-		await page.getByRole('button', { name: '探す' }).click();
+		await page.getByRole('button', { name: 'この条件で探す' }).click();
 
 		await expect(page).toHaveURL(new RegExp(`q=${encodeURIComponent(word)}`));
 		await expect(page.getByText(`${word}の投稿`)).toBeVisible();
@@ -87,7 +86,7 @@ test.describe('発見', () => {
 
 		await page.goto('/explore');
 		await page.getByLabel('キーワード').fill(`該当しない語${Date.now()}`);
-		await page.getByRole('button', { name: '探す' }).click();
+		await page.getByRole('button', { name: 'この条件で探す' }).click();
 
 		await expect(page.getByText('条件に合う投稿は見つかりませんでした')).toBeVisible();
 	});
@@ -103,7 +102,7 @@ test.describe('発見', () => {
 		await page.goto('/explore');
 		await page.getByLabel('キーワード').fill(name);
 		await page.getByLabel('利用者').check();
-		await page.getByRole('button', { name: '探す' }).click();
+		await page.getByRole('button', { name: 'この条件で探す' }).click();
 
 		await expect(page.getByRole('link', { name: new RegExp(name) })).toBeVisible();
 		// 検索結果からそのままフォローできる。
@@ -126,7 +125,7 @@ test.describe('発見', () => {
 		await signup(page);
 
 		await page.goto('/explore');
-		await expect(page.getByRole('heading', { name: '発見', level: 1 })).toBeVisible();
+		await expect(page.getByRole('heading', { name: '詳細検索', level: 1 })).toBeVisible();
 
 		const results = await new AxeBuilder({ page })
 			.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])

@@ -60,3 +60,24 @@ func inTx(ctx context.Context, db *sql.DB, q *dbgen.Queries, fn func(*dbgen.Quer
 	}
 	return nil
 }
+
+// nullTimeToPtr は NULL 許容の日時をポインタに変える。
+//
+// **NULL と「ゼロ値の日時」を区別するために使う。** time.Time のゼロ値は
+// 西暦1年であり、値として持たせると「訪問日が無い」と「西暦1年に行った」の
+// 区別が付かなくなる。
+func nullTimeToPtr(v sql.NullTime) *time.Time {
+	if !v.Valid {
+		return nil
+	}
+	t := v.Time
+	return &t
+}
+
+// timeToNullTime はポインタを NULL 許容の日時に変える。
+func timeToNullTime(v *time.Time) sql.NullTime {
+	if v == nil {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{Time: *v, Valid: true}
+}

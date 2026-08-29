@@ -6,7 +6,9 @@
 		markNotificationRead,
 		type Notification
 	} from '$lib/api/notifications';
+	import { clearUnreadBadge } from '$lib/auth/session.svelte';
 	import { session } from '$lib/auth/session.svelte';
+	import BackLink from '$lib/components/BackLink.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 
 	type State =
@@ -31,6 +33,31 @@
 			view = { kind: 'ready', items: page.notifications, nextCursor: page.nextCursor ?? null };
 		} catch {
 			view = { kind: 'error', message: '通知を取得できませんでした' };
+			return;
+		}
+
+		// **開いた時点で既読にする。** 鈴の赤い印は「見ていないものがある」印であり、
+		// 一覧を開いた以上は消えるのが自然である。消えないと、何度開いても
+		// 印が残り続けることになる。
+		//
+		// **未読の見た目は消さない。** どれが新しかったのかは、この画面に
+		// 留まっている間は分かるようにしておく（次に開いたときには消える）。
+		void markSeen();
+	}
+
+	/**
+	 * 開いたことをサーバーに伝える。
+	 *
+	 * 失敗しても画面は止めない。次に開いたときにまた試されるだけである。
+	 */
+	async function markSeen() {
+		if (view.kind !== 'ready' || view.items.every((n) => n.isRead)) return;
+		try {
+			await markAllNotificationsRead();
+			// ヘッダーの鈴から赤い印を消す。
+			clearUnreadBadge();
+		} catch {
+			// 既読にできなくても一覧は読める。
 		}
 	}
 
@@ -87,6 +114,7 @@
 		view = { ...view, items: view.items.map((x) => ({ ...x, isRead: true })) };
 		try {
 			await markAllNotificationsRead();
+			clearUnreadBadge();
 		} catch {
 			view = { ...view, items: previous };
 			actionError = 'すべてを既読にできませんでした';
@@ -189,6 +217,8 @@
 			</button>
 		{/if}
 	{/if}
+
+	<BackLink label="ホーム" href={resolve('/')} />
 {/if}
 
 <style>
@@ -253,7 +283,7 @@
 	.quote {
 		margin: var(--space-2) 0 0;
 		padding-left: var(--space-3);
-		border-left: 2px solid var(--color-border);
+		border-left: var(--line);
 		color: var(--color-text-muted);
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
@@ -275,7 +305,7 @@
 		font: inherit;
 		color: var(--color-text);
 		background: transparent;
-		border: 1px solid var(--color-border);
+		border: var(--line);
 		border-radius: var(--radius);
 		cursor: pointer;
 	}

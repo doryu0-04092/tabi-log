@@ -16,6 +16,19 @@
 //
 // 代償として、「日本地図が塗られていく」という見た目の訴求は実地図より弱い。
 //
+// ---
+//
+// **配置の方針**（2026-08-29 に組み直した）
+//
+// 最初の配置は本州・四国・九州が地続きに見えて、日本の形として読めなかった。
+// 島の区切りが伝わるよう、次の形に改めた。
+//
+//   - 北海道は右上に**1マスだけ離して**置く（間に空の行を挟む）
+//   - 本州は右上から左下へ流れるように並べる
+//   - 四国は 2×2 の**かたまり**にし、中国地方との間に空きを作る
+//   - 九州は四国の左に**列を1つ空けて**置く
+//   - 沖縄は九州からさらに離し、単独で置く
+//
 // 座標は1始まり。row が南へ、column が東へ増える。
 
 export type PrefectureTile = {
@@ -26,81 +39,92 @@ export type PrefectureTile = {
 };
 
 /** グリッドの大きさ。CSS の grid-template に渡す。 */
-export const TILE_ROWS = 12;
-export const TILE_COLUMNS = 11;
+export const TILE_ROWS = 14;
+export const TILE_COLUMNS = 12;
 
 /**
  * 47件のマス配置。
  *
  * おおよその位置関係が分かればよく、形は再現しない。
- * 隣り合う県が隣り合うマスになることを優先している。
+ * 島どうしが地続きに見えないことを、隣接よりも優先している。
  */
 export const PREFECTURE_TILES: PrefectureTile[] = [
-	// 北海道・東北
-	{ code: '01', row: 1, column: 10 }, // 北海道
-	{ code: '02', row: 2, column: 9 }, // 青森
-	{ code: '05', row: 3, column: 8 }, // 秋田
-	{ code: '03', row: 3, column: 9 }, // 岩手
-	{ code: '06', row: 4, column: 8 }, // 山形
-	{ code: '04', row: 4, column: 9 }, // 宮城
+	// 北海道 — 右上に単独で置く。row 2 を空けて島であることを示す。
+	{ code: '01', row: 1, column: 11 }, // 北海道
 
-	// 北陸・甲信越・関東
-	{ code: '17', row: 5, column: 6 }, // 石川
-	{ code: '16', row: 5, column: 7 }, // 富山
-	{ code: '15', row: 5, column: 8 }, // 新潟
-	{ code: '07', row: 5, column: 9 }, // 福島
-	{ code: '18', row: 6, column: 6 }, // 福井
-	{ code: '21', row: 6, column: 7 }, // 岐阜
-	{ code: '20', row: 6, column: 8 }, // 長野
-	{ code: '10', row: 6, column: 9 }, // 群馬
-	{ code: '09', row: 6, column: 10 }, // 栃木
-	{ code: '08', row: 6, column: 11 }, // 茨城
+	// 東北 — 北海道の下、東側に縦に連ねる。
+	{ code: '02', row: 3, column: 10 }, // 青森
+	{ code: '05', row: 4, column: 9 }, // 秋田
+	{ code: '03', row: 4, column: 10 }, // 岩手
+	{ code: '06', row: 5, column: 9 }, // 山形
+	{ code: '04', row: 5, column: 10 }, // 宮城
+	{ code: '15', row: 6, column: 9 }, // 新潟（中部だが日本海側の並びに置く）
+	{ code: '07', row: 6, column: 10 }, // 福島
 
-	// 中国・近畿・東海・関東南部
-	{ code: '32', row: 7, column: 1 }, // 島根
-	{ code: '31', row: 7, column: 2 }, // 鳥取
-	{ code: '28', row: 7, column: 3 }, // 兵庫
-	{ code: '26', row: 7, column: 4 }, // 京都
-	{ code: '25', row: 7, column: 5 }, // 滋賀
-	{ code: '24', row: 7, column: 6 }, // 三重
-	{ code: '23', row: 7, column: 7 }, // 愛知
-	{ code: '19', row: 7, column: 8 }, // 山梨
-	{ code: '11', row: 7, column: 9 }, // 埼玉
-	{ code: '13', row: 7, column: 10 }, // 東京
-	{ code: '12', row: 7, column: 11 }, // 千葉
+	// 中部・関東 — 本州が右上から左下へ流れる帯の東半分。
+	{ code: '17', row: 7, column: 7 }, // 石川
+	{ code: '16', row: 7, column: 8 }, // 富山
+	{ code: '20', row: 7, column: 9 }, // 長野
+	{ code: '10', row: 7, column: 10 }, // 群馬
+	{ code: '09', row: 7, column: 11 }, // 栃木
+	{ code: '08', row: 7, column: 12 }, // 茨城
 
-	{ code: '35', row: 8, column: 1 }, // 山口
-	{ code: '34', row: 8, column: 2 }, // 広島
-	{ code: '33', row: 8, column: 3 }, // 岡山
-	{ code: '27', row: 8, column: 4 }, // 大阪
-	{ code: '29', row: 8, column: 5 }, // 奈良
-	{ code: '22', row: 8, column: 8 }, // 静岡
-	{ code: '14', row: 8, column: 10 }, // 神奈川
+	{ code: '18', row: 8, column: 7 }, // 福井
+	{ code: '21', row: 8, column: 8 }, // 岐阜
+	{ code: '19', row: 8, column: 9 }, // 山梨
+	{ code: '11', row: 8, column: 10 }, // 埼玉
+	{ code: '13', row: 8, column: 11 }, // 東京
+	{ code: '12', row: 8, column: 12 }, // 千葉
 
-	// 九州・四国
-	{ code: '40', row: 9, column: 1 }, // 福岡
-	{ code: '44', row: 9, column: 2 }, // 大分
-	{ code: '38', row: 9, column: 3 }, // 愛媛
-	{ code: '37', row: 9, column: 4 }, // 香川
-	{ code: '30', row: 9, column: 5 }, // 和歌山
+	{ code: '23', row: 9, column: 8 }, // 愛知
+	{ code: '22', row: 9, column: 9 }, // 静岡
+	{ code: '14', row: 9, column: 10 }, // 神奈川
 
-	{ code: '41', row: 10, column: 1 }, // 佐賀
-	{ code: '43', row: 10, column: 2 }, // 熊本
-	{ code: '39', row: 10, column: 3 }, // 高知
-	{ code: '36', row: 10, column: 4 }, // 徳島
+	// 中国・近畿 — 帯の西半分。日本海側（島根・鳥取）を上の行に置く。
+	{ code: '32', row: 8, column: 3 }, // 島根
+	{ code: '31', row: 8, column: 4 }, // 鳥取
+	{ code: '26', row: 8, column: 6 }, // 京都
 
-	{ code: '42', row: 11, column: 1 }, // 長崎
-	{ code: '45', row: 11, column: 2 }, // 宮崎
+	{ code: '35', row: 9, column: 2 }, // 山口
+	{ code: '34', row: 9, column: 3 }, // 広島
+	{ code: '33', row: 9, column: 4 }, // 岡山
+	{ code: '28', row: 9, column: 5 }, // 兵庫
+	{ code: '27', row: 9, column: 6 }, // 大阪
+	{ code: '25', row: 9, column: 7 }, // 滋賀
 
-	{ code: '47', row: 12, column: 1 }, // 沖縄
-	{ code: '46', row: 12, column: 2 } // 鹿児島
+	{ code: '30', row: 10, column: 6 }, // 和歌山
+	{ code: '29', row: 10, column: 7 }, // 奈良
+	{ code: '24', row: 10, column: 8 }, // 三重
+
+	// 九州 — 左下に寄せる。四国との間に列を1つ空ける。
+	{ code: '40', row: 11, column: 2 }, // 福岡
+	{ code: '44', row: 11, column: 3 }, // 大分
+	{ code: '41', row: 12, column: 1 }, // 佐賀
+	{ code: '43', row: 12, column: 2 }, // 熊本
+	{ code: '45', row: 12, column: 3 }, // 宮崎
+	{ code: '42', row: 13, column: 1 }, // 長崎
+	{ code: '46', row: 13, column: 2 }, // 鹿児島
+
+	// 四国 — 2×2 のかたまり。中国地方との間に行を1つ空ける。
+	{ code: '38', row: 11, column: 5 }, // 愛媛
+	{ code: '37', row: 11, column: 6 }, // 香川
+	{ code: '39', row: 12, column: 5 }, // 高知
+	{ code: '36', row: 12, column: 6 }, // 徳島
+
+	// 沖縄 — 九州から離して単独で置く。
+	{ code: '47', row: 14, column: 4 } // 沖縄
 ];
 
-/** 地方ごとの色相。訪問済み／未訪問は明度で分ける。 */
+/**
+ * 地方ごとの色相。
+ *
+ * **訪問済みかどうかは明度で分ける。** 色相は「どの地方の県か」を示すためだけに
+ * 使う。未訪問でも薄く色が付くので、塗られていない状態でも地方のまとまりが見える。
+ */
 export const REGION_HUES: Record<string, number> = {
 	北海道: 200,
-	東北: 220,
-	関東: 260,
+	東北: 225,
+	関東: 265,
 	中部: 160,
 	近畿: 30,
 	中国: 350,
