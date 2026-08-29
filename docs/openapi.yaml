@@ -36,6 +36,8 @@ tags:
     description: いいねとコメント
   - name: users
     description: プロフィールとフォロー
+  - name: search
+    description: 発見（絞り込み・検索・人気順）
 
 # 既定ですべてのエンドポイントが認証を要する。
 # 認証不要のものは各操作で security: [] を明示して打ち消す。
@@ -281,6 +283,159 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /search/posts:
+    get:
+      tags: [search]
+      operationId: searchPosts
+      summary: 投稿を探す
+      description: |
+        絞り込みの軸（都道府県 / 地方 / タグ / 投稿者 / 訪問日の期間 / キーワード）を
+        **自由に組み合わせられる。** 何も指定しなければ新着フィードと同じ結果になる。
+
+        **キーワードは本文とスポット名を対象に全文検索する。**
+        `ngram` パーサ（トークン長2）を使うため、**1文字のキーワードは
+        検索できない**（400 を返す）。既定のパーサでは日本語が一切ヒットしないので
+        `ngram` は必須である。
+
+        並び順は `sort` で選ぶ。
+
+        | 値 | 意味 |
+        |---|---|
+        | `latest` | 投稿日の新しい順（既定） |
+        | `popular` | いいね数の多い順。同数なら新しい順 |
+
+        > **`popular` の「期間」は投稿日で絞る。** `since` を渡すと
+        > 「その日以降に投稿されたもののうち、いいねの多い順」になる。
+        > **「その期間に付いたいいねの数」ではない。** 後者は `likes` の
+        > 期間集計になり、1画面ごとに全件を数えることになるため採らない。
+
+        該当が無いときは、エラーではなく空の一覧を返す。
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: キーワード。本文とスポット名を対象に全文検索する。**2文字以上**
+          schema:
+            type: string
+            maxLength: 100
+        - name: prefectureCode
+          in: query
+          required: false
+          description: JIS X 0401 の都道府県コード
+          schema:
+            type: string
+            pattern: '^[0-4][0-9]$'
+        - name: region
+          in: query
+          required: false
+          description: 地方（北海道 / 東北 / 関東 / 中部 / 近畿 / 中国 / 四国 / 九州沖縄）
+          schema:
+            type: string
+            maxLength: 10
+        - name: tag
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 50
+        - name: handle
+          in: query
+          required: false
+          description: 投稿者のハンドル
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9_]+$'
+            maxLength: 30
+        - name: visitedFrom
+          in: query
+          required: false
+          description: 訪問日の下限（この日を含む）
+          schema:
+            type: string
+            format: date
+        - name: visitedTo
+          in: query
+          required: false
+          description: 訪問日の上限（この日を含む）
+          schema:
+            type: string
+            format: date
+        - name: since
+          in: query
+          required: false
+          description: 投稿日の下限。`sort=popular` の「期間」を決める
+          schema:
+            type: string
+            format: date
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [latest, popular]
+            default: latest
+        - name: cursor
+          in: query
+          required: false
+          description: |
+            前回の応答の `nextCursor`。**並び順ごとに形が違う**ため、
+            `sort` を変えたら渡し直さずに先頭から取り直すこと。
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: 投稿の一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostListResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /search/users:
+    get:
+      tags: [search]
+      operationId: searchUsers
+      summary: 利用者を探す
+      description: |
+        ハンドルと表示名を対象に、**部分一致**で探す。
+
+        > **前方一致ではなく部分一致にしているため索引が効かない。**
+        > 想定利用者数は2000人であり、全件走査でも問題にならない規模である。
+        > 桁が変わるなら、検索そのものを OpenSearch 側へ移す判断になる。
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: 探したい語。**2文字以上**
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 50
+        - $ref: '#/components/parameters/UserCursor'
+        - $ref: '#/components/parameters/UserLimit'
+      responses:
+        '200':
+          description: 利用者の一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
 
   /feed/following:
     get:

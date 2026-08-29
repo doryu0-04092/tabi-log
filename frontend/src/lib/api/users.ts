@@ -48,3 +48,10 @@ export function listFollowing(handle: string, cursor?: string | null): Promise<U
 
 /** 都道府県の総数。制覇率の分母。 */
 export const PREFECTURE_TOTAL = 47;
+
+/** 利用者を探す。ハンドルと表示名を対象に部分一致で探す。 */
+export function searchUsers(q: string, cursor?: string | null): Promise<UserPage> {
+	const params = new URLSearchParams({ q });
+	if (cursor) params.set('cursor', cursor);
+	return request<UserPage>(`/search/users?${params}`);
+}

@@ -47,7 +47,19 @@ func parseCursor(w http.ResponseWriter, r *http.Request, param *string) (uint64,
 }
 
 // fetchPage は投稿を1ページ分取ってくる。取り方の違いだけをここで受け取る。
-type fetchPage func(ctx context.Context, cursorID uint64, limit int) ([]domain.Post, uint64, error)
+//
+// **次のカーソルは文字列で返す。** 新着とフォロー中は投稿 ID だが、
+// 人気順は (いいね数, ID) の組であり数値1つに収まらない。
+// 続きが無いときは空文字を返す。
+type fetchPage func(ctx context.Context, limit int) ([]domain.Post, string, error)
+
+// formatCursor は ID をカーソル文字列にする。0 は「続きが無い」を表す。
+func formatCursor(id uint64) string {
+	if id == 0 {
+		return ""
+	}
+	return strconv.FormatUint(id, 10)
+}
 
 // writeFeedPage は投稿の一覧を検証・取得・組み立てまで通して応答する。
 func writeFeedPage(
@@ -55,7 +67,6 @@ func writeFeedPage(
 	r *http.Request,
 	likes ReactionRepository,
 	logger *slog.Logger,
-	cursorParam *string,
 	limitParam *int,
 	fetch fetchPage,
 ) {
@@ -69,12 +80,8 @@ func writeFeedPage(
 	if !ok {
 		return
 	}
-	cursor, ok := parseCursor(w, r, cursorParam)
-	if !ok {
-		return
-	}
 
-	posts, next, err := fetch(r.Context(), cursor, limit)
+	posts, next, err := fetch(r.Context(), limit)
 	if err != nil {
 		feedError(w, r, logger, "フィードの取得に失敗した", err)
 		return
@@ -99,9 +106,8 @@ func writeFeedPage(
 
 	var body gen.PostListResponse
 	body.Data.Posts = items
-	if next != 0 {
-		s := strconv.FormatUint(next, 10)
-		body.Data.NextCursor = &s
+	if next != "" {
+		body.Data.NextCursor = &next
 	}
 	writeJSON(w, r, http.StatusOK, body.Data)
 }

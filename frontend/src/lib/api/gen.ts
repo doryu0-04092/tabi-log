@@ -189,6 +189,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/search/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 投稿を探す
+         * @description 絞り込みの軸（都道府県 / 地方 / タグ / 投稿者 / 訪問日の期間 / キーワード）を
+         *     **自由に組み合わせられる。** 何も指定しなければ新着フィードと同じ結果になる。
+         *
+         *     **キーワードは本文とスポット名を対象に全文検索する。**
+         *     `ngram` パーサ（トークン長2）を使うため、**1文字のキーワードは
+         *     検索できない**（400 を返す）。既定のパーサでは日本語が一切ヒットしないので
+         *     `ngram` は必須である。
+         *
+         *     並び順は `sort` で選ぶ。
+         *
+         *     | 値 | 意味 |
+         *     |---|---|
+         *     | `latest` | 投稿日の新しい順（既定） |
+         *     | `popular` | いいね数の多い順。同数なら新しい順 |
+         *
+         *     > **`popular` の「期間」は投稿日で絞る。** `since` を渡すと
+         *     > 「その日以降に投稿されたもののうち、いいねの多い順」になる。
+         *     > **「その期間に付いたいいねの数」ではない。** 後者は `likes` の
+         *     > 期間集計になり、1画面ごとに全件を数えることになるため採らない。
+         *
+         *     該当が無いときは、エラーではなく空の一覧を返す。
+         */
+        get: operations["searchPosts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/search/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 利用者を探す
+         * @description ハンドルと表示名を対象に、**部分一致**で探す。
+         *
+         *     > **前方一致ではなく部分一致にしているため索引が効かない。**
+         *     > 想定利用者数は2000人であり、全件走査でも問題にならない規模である。
+         *     > 桁が変わるなら、検索そのものを OpenSearch 側へ移す判断になる。
+         */
+        get: operations["searchUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed/following": {
         parameters: {
             query?: never;
@@ -1245,6 +1309,79 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    searchPosts: {
+        parameters: {
+            query?: {
+                /** @description キーワード。本文とスポット名を対象に全文検索する。**2文字以上** */
+                q?: string;
+                /** @description JIS X 0401 の都道府県コード */
+                prefectureCode?: string;
+                /** @description 地方（北海道 / 東北 / 関東 / 中部 / 近畿 / 中国 / 四国 / 九州沖縄） */
+                region?: string;
+                tag?: string;
+                /** @description 投稿者のハンドル */
+                handle?: string;
+                /** @description 訪問日の下限（この日を含む） */
+                visitedFrom?: string;
+                /** @description 訪問日の上限（この日を含む） */
+                visitedTo?: string;
+                /** @description 投稿日の下限。`sort=popular` の「期間」を決める */
+                since?: string;
+                sort?: "latest" | "popular";
+                /**
+                 * @description 前回の応答の `nextCursor`。**並び順ごとに形が違う**ため、
+                 *     `sort` を変えたら渡し直さずに先頭から取り直すこと。
+                 */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 投稿の一覧 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostListResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    searchUsers: {
+        parameters: {
+            query: {
+                /** @description 探したい語。**2文字以上** */
+                q: string;
+                /** @description 前回の応答の `nextCursor` */
+                cursor?: components["parameters"]["UserCursor"];
+                limit?: components["parameters"]["UserLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 利用者の一覧 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserListResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
         };
     };
     listFollowingFeed: {

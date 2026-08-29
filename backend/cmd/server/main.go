@@ -16,6 +16,7 @@ import (
 	"github.com/doryu0-04092/tabi-log/backend/internal/auth"
 	"github.com/doryu0-04092/tabi-log/backend/internal/config"
 	"github.com/doryu0-04092/tabi-log/backend/internal/httpapi"
+	"github.com/doryu0-04092/tabi-log/backend/internal/search"
 	"github.com/doryu0-04092/tabi-log/backend/internal/storage"
 	"github.com/doryu0-04092/tabi-log/backend/internal/store"
 
@@ -77,6 +78,7 @@ func run() error {
 		Posts:         store.NewPostStore(db),
 		Reactions:     store.NewReactionStore(db),
 		Follows:       store.NewFollowStore(db),
+		Search:        search.NewMySQLSearcher(db),
 		Storage:       objectStorage,
 		TokenIssuer:   tokens,
 		TokenVerifier: tokens,

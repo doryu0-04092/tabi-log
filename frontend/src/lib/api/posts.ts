@@ -130,3 +130,34 @@ export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /** 投稿に付けられる画像の最大枚数。 */
 export const MAX_IMAGES_PER_POST = 4;
+
+/** 投稿を探すときの絞り込み。指定したものだけが効く。 */
+export type SearchQuery = {
+	q?: string;
+	prefectureCode?: string;
+	region?: string;
+	tag?: string;
+	handle?: string;
+	visitedFrom?: string;
+	visitedTo?: string;
+	since?: string;
+	sort?: 'latest' | 'popular';
+	cursor?: string | null;
+};
+
+/**
+ * 投稿を探す。
+ *
+ * **カーソルは並び順ごとに形が違う**（新着は id、人気順は いいね数_id）。
+ * 並び順を変えたら、前のカーソルは渡さず先頭から取り直すこと。
+ */
+export function searchPosts(query: SearchQuery): Promise<Feed> {
+	const params = new URLSearchParams();
+	for (const [key, value] of Object.entries(query)) {
+		if (value !== undefined && value !== null && value !== '') {
+			params.set(key, String(value));
+		}
+	}
+	const suffix = params.toString();
+	return request<Feed>(`/search/posts${suffix ? `?${suffix}` : ''}`);
+}

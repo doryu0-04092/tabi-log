@@ -91,9 +91,15 @@ func (h *userHandler) ListUserPosts(w http.ResponseWriter, r *http.Request, hand
 		return
 	}
 
-	writeFeedPage(w, r, h.likes, h.logger, params.Cursor, params.Limit,
-		func(ctx context.Context, cursorID uint64, limit int) ([]domain.Post, uint64, error) {
-			return h.posts.ListUserPosts(ctx, user.ID, cursorID, limit, h.storage, displayURLTTL)
+	cursor, ok := parseCursor(w, r, params.Cursor)
+	if !ok {
+		return
+	}
+
+	writeFeedPage(w, r, h.likes, h.logger, params.Limit,
+		func(ctx context.Context, limit int) ([]domain.Post, string, error) {
+			posts, next, err := h.posts.ListUserPosts(ctx, user.ID, cursor, limit, h.storage, displayURLTTL)
+			return posts, formatCursor(next), err
 		})
 }
 

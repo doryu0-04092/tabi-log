@@ -186,6 +186,24 @@ func (e RefreshParamsXRequestedWith) Valid() bool {
 	}
 }
 
+// Defines values for SearchPostsParamsSort.
+const (
+	Latest  SearchPostsParamsSort = "latest"
+	Popular SearchPostsParamsSort = "popular"
+)
+
+// Valid indicates whether the value is a known member of the SearchPostsParamsSort enum.
+func (e SearchPostsParamsSort) Valid() bool {
+	switch e {
+	case Latest:
+		return true
+	case Popular:
+		return true
+	default:
+		return false
+	}
+}
+
 // AuthResponse defines model for AuthResponse.
 type AuthResponse struct {
 	Data struct {
@@ -645,6 +663,50 @@ type ListCommentsParams struct {
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// SearchPostsParams defines parameters for SearchPosts.
+type SearchPostsParams struct {
+	// Q キーワード。本文とスポット名を対象に全文検索する。**2文字以上**
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// PrefectureCode JIS X 0401 の都道府県コード
+	PrefectureCode *string `form:"prefectureCode,omitempty" json:"prefectureCode,omitempty"`
+
+	// Region 地方（北海道 / 東北 / 関東 / 中部 / 近畿 / 中国 / 四国 / 九州沖縄）
+	Region *string `form:"region,omitempty" json:"region,omitempty"`
+	Tag    *string `form:"tag,omitempty" json:"tag,omitempty"`
+
+	// Handle 投稿者のハンドル
+	Handle *string `form:"handle,omitempty" json:"handle,omitempty"`
+
+	// VisitedFrom 訪問日の下限（この日を含む）
+	VisitedFrom *openapi_types.Date `form:"visitedFrom,omitempty" json:"visitedFrom,omitempty"`
+
+	// VisitedTo 訪問日の上限（この日を含む）
+	VisitedTo *openapi_types.Date `form:"visitedTo,omitempty" json:"visitedTo,omitempty"`
+
+	// Since 投稿日の下限。`sort=popular` の「期間」を決める
+	Since *openapi_types.Date    `form:"since,omitempty" json:"since,omitempty"`
+	Sort  *SearchPostsParamsSort `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// Cursor 前回の応答の `nextCursor`。**並び順ごとに形が違う**ため、
+	// `sort` を変えたら渡し直さずに先頭から取り直すこと。
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// SearchPostsParamsSort defines parameters for SearchPosts.
+type SearchPostsParamsSort string
+
+// SearchUsersParams defines parameters for SearchUsers.
+type SearchUsersParams struct {
+	// Q 探したい語。**2文字以上**
+	Q string `form:"q" json:"q"`
+
+	// Cursor 前回の応答の `nextCursor`
+	Cursor *UserCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *UserLimit  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListFollowersParams defines parameters for ListFollowers.
 type ListFollowersParams struct {
 	// Cursor 前回の応答の `nextCursor`
@@ -749,6 +811,12 @@ type ServerInterface interface {
 	// GetReadyz 依存先を含む疎通確認
 	// (GET /readyz)
 	GetReadyz(w http.ResponseWriter, r *http.Request)
+	// SearchPosts 投稿を探す
+	// (GET /search/posts)
+	SearchPosts(w http.ResponseWriter, r *http.Request, params SearchPostsParams)
+	// SearchUsers 利用者を探す
+	// (GET /search/users)
+	SearchUsers(w http.ResponseWriter, r *http.Request, params SearchUsersParams)
 	// GetUserProfile プロフィールを取得する
 	// (GET /users/{handle})
 	GetUserProfile(w http.ResponseWriter, r *http.Request, handle Handle)
@@ -1335,6 +1403,228 @@ func (siw *ServerInterfaceWrapper) GetReadyz(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// SearchPosts operation middleware
+func (siw *ServerInterfaceWrapper) SearchPosts(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchPostsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "prefectureCode" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "prefectureCode", r.URL.Query(), &params.PrefectureCode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "prefectureCode"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "prefectureCode", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "region" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "region", r.URL.Query(), &params.Region, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "region"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "region", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "tag" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "tag", r.URL.Query(), &params.Tag, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tag"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tag", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "handle" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "handle", r.URL.Query(), &params.Handle, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "handle"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "handle", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "visitedFrom" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "visitedFrom", r.URL.Query(), &params.VisitedFrom, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "visitedFrom"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "visitedFrom", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "visitedTo" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "visitedTo", r.URL.Query(), &params.VisitedTo, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "visitedTo"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "visitedTo", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "since" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "since", r.URL.Query(), &params.Since, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "since"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "since", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SearchPosts(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SearchUsers operation middleware
+func (siw *ServerInterfaceWrapper) SearchUsers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchUsersParams
+
+	// ------------- Required query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SearchUsers(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetUserProfile operation middleware
 func (siw *ServerInterfaceWrapper) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 
@@ -1705,6 +1995,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/media/presign", wrapper.PresignMediaUpload)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/media/{mediaId}", wrapper.GetMediaStatus)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/posts", wrapper.SearchPosts)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/users", wrapper.SearchUsers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/feed/following", wrapper.ListFollowingFeed)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}", wrapper.GetUserProfile)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/users/{handle}/follow", wrapper.UnfollowUser)
