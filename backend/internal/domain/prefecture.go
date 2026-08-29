@@ -21,3 +21,13 @@ type Prefecture struct {
 	// Region は八地方区分。「関東の投稿」のような粒度での絞り込みに使う。
 	Region string
 }
+
+// PrefectureCount はある利用者の、都道府県ごとの投稿数。
+//
+// **投稿が0件の県も含む。** 制覇マップは47件すべてのマスを描くためである。
+type PrefectureCount struct {
+	Code      string
+	Name      string
+	Region    string
+	PostCount int
+}

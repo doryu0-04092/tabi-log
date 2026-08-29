@@ -77,7 +77,9 @@
 
 	<div class="meta">
 		<!-- 地名は「どこへ」の答えであり、この SNS の中核。写真の直下に置く。 -->
-		<a class="prefecture" href={resolve('/')}>{post.prefecture.name}</a>
+		<a class="prefecture" href={resolve('/prefectures/[code]', { code: post.prefecture.code })}>
+			{post.prefecture.name}
+		</a>
 		{#if post.spotName}
 			<span class="spot">{post.spotName}</span>
 		{/if}

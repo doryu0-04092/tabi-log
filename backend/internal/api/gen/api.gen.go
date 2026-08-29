@@ -484,6 +484,22 @@ type Prefecture struct {
 // Example: 北海道
 type PrefectureRegion string
 
+// PrefectureCount defines model for PrefectureCount.
+type PrefectureCount struct {
+	// Code JIS X 0401 の都道府県コード
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	PostCount int    `json:"postCount"`
+	Region    string `json:"region"`
+}
+
+// PrefectureCountListResponse defines model for PrefectureCountListResponse.
+type PrefectureCountListResponse struct {
+	Data struct {
+		Prefectures []PrefectureCount `json:"prefectures"`
+	} `json:"data"`
+}
+
 // PrefectureListResponse defines model for PrefectureListResponse.
 type PrefectureListResponse struct {
 	// Data JIS コード順に並んだ47件
@@ -910,6 +926,9 @@ type ServerInterface interface {
 	// ListUserPosts その利用者の投稿
 	// (GET /users/{handle}/posts)
 	ListUserPosts(w http.ResponseWriter, r *http.Request, handle Handle, params ListUserPostsParams)
+	// ListUserPrefectures 都道府県ごとの投稿数
+	// (GET /users/{handle}/prefectures)
+	ListUserPrefectures(w http.ResponseWriter, r *http.Request, handle Handle)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -2043,6 +2062,32 @@ func (siw *ServerInterfaceWrapper) ListUserPosts(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListUserPrefectures operation middleware
+func (siw *ServerInterfaceWrapper) ListUserPrefectures(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "handle" -------------
+	var handle Handle
+
+	err = runtime.BindStyledParameterWithOptions("simple", "handle", r.PathValue("handle"), &handle, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "handle", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUserPrefectures(w, r, handle)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -2176,6 +2221,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}", wrapper.GetUserProfile)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/users/{handle}/follow", wrapper.UnfollowUser)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/users/{handle}/follow", wrapper.FollowUser)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}/prefectures", wrapper.ListUserPrefectures)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}/posts", wrapper.ListUserPosts)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}/followers", wrapper.ListFollowers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{handle}/following", wrapper.ListFollowing)

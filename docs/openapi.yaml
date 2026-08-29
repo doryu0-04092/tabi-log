@@ -550,6 +550,34 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /users/{handle}/prefectures:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+
+    get:
+      tags: [users]
+      operationId: listUserPrefectures
+      summary: 都道府県ごとの投稿数
+      description: |
+        都道府県制覇マップのためのデータ。
+
+        **投稿が無い県も含めて47件すべてを返す。** マップは全県のマスを
+        描くため、返さないと画面側で都道府県マスタと突き合わせる処理が要る。
+        47件は固定であり、量として問題にならない。
+
+        並びは `sort_order`（JIS X 0401 の順）である。
+      responses:
+        '200':
+          description: 都道府県ごとの投稿数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrefectureCountListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /users/{handle}/posts:
     parameters:
       - $ref: '#/components/parameters/Handle'
@@ -1446,6 +1474,34 @@ components:
               type: string
               nullable: true
               description: 続きがある場合のみ入る
+
+    PrefectureCount:
+      type: object
+      required: [code, name, region, postCount]
+      properties:
+        code:
+          type: string
+          description: JIS X 0401 の都道府県コード
+        name:
+          type: string
+        region:
+          type: string
+        postCount:
+          type: integer
+          minimum: 0
+
+    PrefectureCountListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [prefectures]
+          properties:
+            prefectures:
+              type: array
+              items:
+                $ref: '#/components/schemas/PrefectureCount'
 
     # -----------------------------------------------------------------------
     # 通知

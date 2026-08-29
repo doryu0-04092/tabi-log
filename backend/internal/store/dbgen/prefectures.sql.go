@@ -28,6 +28,58 @@ func (q *Queries) GetPrefecture(ctx context.Context, code string) (Prefecture, e
 	return i, err
 }
 
+const listPrefectureCountsByUser = `-- name: ListPrefectureCountsByUser :many
+SELECT
+    p.code, p.name, p.region,
+    COUNT(po.id) AS post_count
+FROM prefectures p
+LEFT JOIN posts po ON po.prefecture_code = p.code AND po.user_id = ?
+GROUP BY p.code, p.name, p.region, p.sort_order
+ORDER BY p.sort_order
+`
+
+type ListPrefectureCountsByUserRow struct {
+	Code      string
+	Name      string
+	Region    string
+	PostCount int64
+}
+
+// ある利用者の、都道府県ごとの投稿数。
+//
+// **投稿が無い県も 0 件として返す。** 制覇マップは47件すべてのマスを描くため、
+// LEFT JOIN で全県を残す。INNER JOIN にすると訪問済みの県しか返らず、
+// 画面側で都道府県マスタと突き合わせる処理が要る。
+//
+// 索引 ix_posts_user_prefecture (user_id, prefecture_code) が効く。
+func (q *Queries) ListPrefectureCountsByUser(ctx context.Context, userID uint64) ([]ListPrefectureCountsByUserRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPrefectureCountsByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPrefectureCountsByUserRow{}
+	for rows.Next() {
+		var i ListPrefectureCountsByUserRow
+		if err := rows.Scan(
+			&i.Code,
+			&i.Name,
+			&i.Region,
+			&i.PostCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPrefectures = `-- name: ListPrefectures :many
 
 SELECT code, name, name_kana, region, sort_order
