@@ -64,6 +64,11 @@ type testDeps struct {
 	notifications NotificationRepository
 	account       AccountRepository
 	tokens        *auth.JWTService
+
+	// 書き込みの上限。0 なら緩い既定値を使う。
+	// **上限そのものを見るテストだけがここを絞る。**
+	postCreateLimit    int
+	commentCreateLimit int
 }
 
 func newRouter(t *testing.T, d testDeps) http.Handler {
@@ -99,6 +104,12 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 	if d.account == nil {
 		d.account = &stubAccountRepo{}
 	}
+	if d.postCreateLimit == 0 {
+		d.postCreateLimit = 1000
+	}
+	if d.commentCreateLimit == 0 {
+		d.commentCreateLimit = 1000
+	}
 
 	deps := Deps{
 		DB:            stubPinger{err: d.pingErr},
@@ -120,6 +131,12 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 		},
 		LoginAttemptLimit:  10,
 		LoginAttemptWindow: 5 * time.Minute,
+		// **書き込みの上限はテストでは緩めておく。** 上限そのものを
+		// 見るテストは、上限を絞った専用の構成で確かめる（writelimit_test.go）。
+		// ここを既定のままにすると、無関係なテストが 429 で落ちる。
+		PostCreateLimit:    d.postCreateLimit,
+		CommentCreateLimit: d.commentCreateLimit,
+		WriteLimitWindow:   time.Hour,
 		Logger:             discardLogger(),
 	}
 
@@ -252,13 +269,18 @@ type stubPostRepo struct {
 	// 旅行履歴はカーソルの形が違う（訪問日と ID の組）。
 	lastTravelCursor store.TravelCursor
 	nextTravelCursor store.TravelCursor
+
+	// created は保存まで届いた投稿。上限の確認で「弾いた分は
+	// 保存していない」ことを見るために記録する。
+	created []store.CreatePostInput
 }
 
 func (s *stubPostRepo) CreatePendingMedia(context.Context, uint64, string) (uint64, error) {
 	return 0, nil
 }
-func (s *stubPostRepo) CreatePost(context.Context, store.CreatePostInput) (uint64, error) {
-	return 0, nil
+func (s *stubPostRepo) CreatePost(_ context.Context, in store.CreatePostInput) (uint64, error) {
+	s.created = append(s.created, in)
+	return uint64(len(s.created)), nil
 }
 func (s *stubPostRepo) UpdatePost(context.Context, store.UpdatePostInput) error { return nil }
 func (s *stubPostRepo) DeletePost(context.Context, uint64, uint64) ([]string, error) {

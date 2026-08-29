@@ -43,6 +43,7 @@ type server struct {
 	*searchHandler
 	*notificationHandler
 	*accountHandler
+	*docsHandler
 }
 
 // Deps はルーターの構築に必要な依存をまとめる。
@@ -65,6 +66,12 @@ type Deps struct {
 
 	LoginAttemptLimit  int
 	LoginAttemptWindow time.Duration
+
+	// PostCreateLimit / CommentCreateLimit は認証済みの利用者が
+	// WriteLimitWindow の間に作れる件数の上限。
+	PostCreateLimit    int
+	CommentCreateLimit int
+	WriteLimitWindow   time.Duration
 
 	Logger *slog.Logger
 }
@@ -118,12 +125,24 @@ func NewRouter(deps Deps) http.Handler {
 			avatars: avatars,
 			logger:  deps.Logger,
 			now:     time.Now,
+			createLimit: &writeLimiter{
+				limiter: NewRateLimiter(deps.PostCreateLimit, deps.WriteLimitWindow),
+				message: "投稿の数が多すぎます。しばらく待ってからお試しください",
+				logger:  deps.Logger,
+				kind:    "post",
+			},
 		},
 		reactionHandler: &reactionHandler{
 			repo:    deps.Reactions,
 			posts:   deps.Posts,
 			avatars: avatars,
 			logger:  deps.Logger,
+			createLimit: &writeLimiter{
+				limiter: NewRateLimiter(deps.CommentCreateLimit, deps.WriteLimitWindow),
+				message: "コメントの数が多すぎます。しばらく待ってからお試しください",
+				logger:  deps.Logger,
+				kind:    "comment",
+			},
 		},
 		userHandler: &userHandler{
 			repo:    deps.Follows,
@@ -150,6 +169,7 @@ func NewRouter(deps Deps) http.Handler {
 			logger:  deps.Logger,
 			now:     time.Now,
 		},
+		docsHandler: &docsHandler{},
 		searchHandler: &searchHandler{
 			repo:    deps.Search,
 			posts:   deps.Posts,
@@ -179,6 +199,6 @@ func NewRouter(deps Deps) http.Handler {
 		WithRequestID,
 		WithRecovery(deps.Logger),
 		WithAccessLog(deps.Logger),
-		WithAuthentication(deps.TokenVerifier),
+		WithAuthentication(deps.TokenVerifier, deps.Logger),
 	)
 }

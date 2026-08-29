@@ -170,7 +170,9 @@ async function uploadViaApi(api: APIRequestContext, token: string): Promise<numb
 	expect(put.ok(), `S3 への PUT が失敗した: ${put.status()}`).toBeTruthy();
 
 	// 完了するまで問い合わせる。上限を切って、無限に待たない。
-	for (let i = 0; i < 40; i++) {
+	// **画面側の待ち時間（30秒）に合わせる。** テストが並列に走ると
+	// 画像処理が重なり、10秒では足りずに落ちた（2026-08-29）。
+	for (let i = 0; i < 120; i++) {
 		await new Promise((r) => setTimeout(r, 250));
 		const state = await api.get(`/api/media/${mediaId}`, { headers: auth });
 		const status = (await state.json()).data.status;
@@ -213,7 +215,9 @@ export async function createPostsViaApi(
 	count: number,
 	label: string
 ): Promise<void> {
-	const CONCURRENCY = 4;
+	// **並列度を上げすぎない。** 画像処理は1件ずつコンテナで動くため、
+	// 同時に投げるほど1件あたりの完了が遅くなる。
+	const CONCURRENCY = 2;
 	for (let start = 0; start < count; start += CONCURRENCY) {
 		const batch = [];
 		for (let i = start; i < Math.min(start + CONCURRENCY, count); i++) {

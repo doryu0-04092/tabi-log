@@ -55,6 +55,27 @@ export function createPost(input: NewPost): Promise<Post> {
 }
 
 /**
+ * 投稿の編集で送る内容。
+ *
+ * **画像は含まない。** 差し替えは対象外である（requirements.md 3.2）。
+ * 画像を入れ替えられるようにすると、既に処理済みの画像を捨てて
+ * 作り直す経路が要り、投稿の作成と同じだけの仕組みが二重になる。
+ */
+export type PostEdit = {
+	body: string;
+	prefectureCode: string;
+	spotName?: string | null;
+	/** null を送ると訪問日を消す。 */
+	visitedOn: string | null;
+	tags: string[];
+};
+
+/** 投稿を編集する。**自分の投稿でなければサーバーが 403 を返す。** */
+export function updatePost(postId: number | string, input: PostEdit): Promise<Post> {
+	return request<Post>(`/posts/${postId}`, { method: 'PATCH', body: input });
+}
+
+/**
  * 画像を1枚アップロードし、投稿に使える mediaId を返す。
  *
  * **画像はサーバーを経由せず S3 へ直接送る。** 大きなファイルで

@@ -83,6 +83,13 @@ type AuthConfig struct {
 	LoginAttemptLimit  int
 	LoginAttemptWindow time.Duration
 
+	// PostCreateLimit / CommentCreateLimit / WriteLimitWindow は
+	// 認証済みの利用者が書き込める件数の上限。
+	// **ログイン試行とは目的が違う**（internal/httpapi/writelimit.go）。
+	PostCreateLimit    int
+	CommentCreateLimit int
+	WriteLimitWindow   time.Duration
+
 	// TrustProxyHeaders は X-Forwarded-For を信用するかどうか。
 	//
 	// **ALB や CloudFront の背後では true にする。** false のままだと
@@ -151,6 +158,9 @@ func Load() (Config, error) {
 			CookieSecure:       envBool("COOKIE_SECURE", false),
 			LoginAttemptLimit:  envInt("LOGIN_ATTEMPT_LIMIT", 10),
 			LoginAttemptWindow: envDuration("LOGIN_ATTEMPT_WINDOW", 5*time.Minute),
+			PostCreateLimit:    envInt("POST_CREATE_LIMIT", 20),
+			CommentCreateLimit: envInt("COMMENT_CREATE_LIMIT", 60),
+			WriteLimitWindow:   envDuration("WRITE_LIMIT_WINDOW", time.Hour),
 			TrustProxyHeaders:  envBool("TRUST_PROXY_HEADERS", false),
 		},
 		Storage: StorageConfig{

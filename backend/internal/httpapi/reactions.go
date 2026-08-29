@@ -38,6 +38,8 @@ type reactionHandler struct {
 	posts   PostRepository
 	avatars *avatarResolver
 	logger  *slog.Logger
+	// createLimit はコメントの作成にかける上限。nil なら数えない。
+	createLimit *writeLimiter
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +95,10 @@ func (h *reactionHandler) CreateComment(w http.ResponseWriter, r *http.Request, 
 	userID, ok := UserIDFrom(r.Context())
 	if !ok {
 		writeError(w, r, http.StatusUnauthorized, "unauthenticated", "ログインが必要です")
+		return
+	}
+
+	if !h.createLimit.allow(w, r, userID) {
 		return
 	}
 
