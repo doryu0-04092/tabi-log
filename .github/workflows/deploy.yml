@@ -1,0 +1,255 @@
+name: Deploy
+
+# **手動起動にしている。**
+#
+# このプロジェクトは「使わない期間は terraform destroy する」運用を前提にしている
+# （infra/README.md）。main への push で自動デプロイすると、
+# 環境が無い期間はマージのたびに必ず失敗し、**赤いバッジが常態化して誰も見なくなる**。
+#
+# 環境を常時稼働させる運用に変えるなら、下の on: に push を足すだけでよい。
+on:
+  workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: "マイグレーションを流す（スキーマを変えたときは必須）"
+        type: boolean
+        default: false
+      deploy_backend:
+        description: "バックエンド（ECR + ECS）をデプロイする"
+        type: boolean
+        default: true
+      deploy_frontend:
+        description: "フロントエンド（S3 + CloudFront）をデプロイする"
+        type: boolean
+        default: true
+
+# OIDC トークンの発行に必要。**これが無いと AssumeRole できない。**
+permissions:
+  contents: read
+  id-token: write
+
+# **同時に走らせない。** 2つのデプロイが並ぶと、後から始まった方が
+# 古いイメージでサービスを上書きしうる。
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-1
+  CLUSTER: tabilog
+  SERVICE: tabilog
+  TASK_FAMILY: tabilog
+  MIGRATE_FAMILY: tabilog-migrate
+  ECR_REPO: tabilog
+
+jobs:
+  deploy:
+    name: deploy to AWS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 唯一の追加アクション。OIDC での一時認証情報の取得はこれに任せる。
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # **先に環境の存在を確かめる。**
+      # destroy 済みの状態で走らせると、後続が個別に分かりにくいエラーで落ちる。
+      # ここで「そもそも環境が無い」と言い切ってしまう方が早い。
+      - name: Check the environment exists
+        id: env
+        run: |
+          set -euo pipefail
+          if ! aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+                --query 'services[0].status' --output text 2>/dev/null | grep -q ACTIVE; then
+            echo "::error::ECS サービス $SERVICE が見つかりません。terraform apply で環境を作ってから実行してください（destroy 済みの可能性があります）。"
+            exit 1
+          fi
+          echo "registry=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${AWS_REGION}.amazonaws.com" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to ECR
+        run: aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${{ steps.env.outputs.registry }}"
+
+      # --- マイグレーション ---
+      #
+      # **tabi-log は起動時に自動適用しない。** スキーマの変更をデプロイから
+      # 切り離すためである（infra/README.md）。そのぶん、変えたときは
+      # ここを通す必要がある。
+      #
+      # **アプリより先に流す。** 逆にすると、新しいコードが古いスキーマの上で
+      # 動く時間ができる。列を足すだけの変更なら問題ないが、
+      # 列を使う変更では起動直後にエラーになる。
+      #
+      # **列の削除を伴う変更ではこの順序が逆に働く。** 先に消すと、
+      # まだ動いている古いコードが落ちる。その場合は「足す→配る→消す」の
+      # 2回に分けること。ここで自動化できるのは前半だけである。
+      - name: Build and push the migration image
+        if: inputs.run_migrations
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 --provenance=false --sbom=false \
+            -f docker/Dockerfile.migrate -t "$REPO:migrate" .
+          docker push "$REPO:migrate"
+        env:
+          REPO: ${{ steps.env.outputs.registry }}/tabilog
+
+      - name: Run migrations
+        if: inputs.run_migrations
+        run: |
+          set -euo pipefail
+          SUBNETS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration.subnets' --output text | tr '\t' ',')
+          SG=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration.securityGroups[0]' --output text)
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$CLUSTER" --task-definition "$MIGRATE_FAMILY" --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=ENABLED}" \
+            --overrides '{"containerOverrides":[{"name":"migrate","command":["up"]}]}' \
+            --query 'tasks[0].taskArn' --output text)
+          echo "task: $TASK_ARN"
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK_ARN"
+
+          # **終了コードを必ず見る。** タスクが停止しただけでは成功とは限らない。
+          # 見落とすと、スキーマが古いままアプリだけ新しくなる。
+          read -r EXIT_CODE REASON < <(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" \
+            --query 'tasks[0].[containers[0].exitCode,stoppedReason]' --output text)
+
+          TASK_ID="${TASK_ARN##*/}"
+          STREAM=$(aws logs describe-log-streams --log-group-name "/ecs/$MIGRATE_FAMILY" \
+            --log-stream-name-prefix "migrate/migrate/${TASK_ID}" \
+            --query 'logStreams[0].logStreamName' --output text 2>/dev/null || true)
+          if [ -n "${STREAM:-}" ] && [ "$STREAM" != "None" ]; then
+            aws logs get-log-events --log-group-name "/ecs/$MIGRATE_FAMILY" --log-stream-name "$STREAM" \
+              --query 'events[].message' --output text | tr '\t' '\n' | sed 's/^/    /'
+          fi
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "::error::マイグレーションが失敗しました（終了コード ${EXIT_CODE} / ${REASON}）"
+            exit 1
+          fi
+
+      # --- バックエンド ---
+      #
+      # **--provenance=false --sbom=false は外せない。**
+      # 付けないと buildx が attestation を含む OCI イメージインデックスを作り、
+      # ECS Fargate がイメージを取得できないことがある。
+      #
+      # タグはコミット SHA。latest だけだと「今どれが動いているか」が追えず、
+      # ロールバック先も指定できない。
+      - name: Build and push the backend image
+        if: inputs.deploy_backend
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 --provenance=false --sbom=false \
+            -f docker/Dockerfile.backend \
+            -t "$REPO:$GITHUB_SHA" -t "$REPO:latest" .
+          docker push "$REPO:$GITHUB_SHA"
+          docker push "$REPO:latest"
+        env:
+          REPO: ${{ steps.env.outputs.registry }}/tabilog
+
+      # 現行のタスク定義を取り、イメージだけ差し替えて新しいリビジョンを登録する。
+      #
+      # **Terraform が管理する他の項目（環境変数・秘密・CPU/メモリ）には触れない。**
+      # ここで作り直すと Terraform 側の定義と食い違ったまま動くことになり、
+      # 次の terraform apply で黙って巻き戻る。
+      - name: Register a new task definition
+        if: inputs.deploy_backend
+        id: taskdef
+        run: |
+          set -euo pipefail
+          aws ecs describe-task-definition --task-definition "$TASK_FAMILY" --query taskDefinition > current.json
+          jq --arg image "$REPO:$GITHUB_SHA" '
+            .containerDefinitions[0].image = $image
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                  .compatibilities, .registeredAt, .registeredBy)
+          ' current.json > new.json
+          arn=$(aws ecs register-task-definition --cli-input-json file://new.json \
+                  --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$arn" >> "$GITHUB_OUTPUT"
+          echo "登録しました: $arn"
+        env:
+          REPO: ${{ steps.env.outputs.registry }}/tabilog
+
+      # **入れ替わり切るまで待つ。** 待たずに成功として終えると、
+      # 起動に失敗して古いタスクへ戻っていても「デプロイ成功」と表示される。
+      - name: Roll out and wait
+        if: inputs.deploy_backend
+        run: |
+          set -euo pipefail
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" \
+            --task-definition "${{ steps.taskdef.outputs.arn }}" \
+            --query 'service.serviceName' --output text
+          echo "入れ替わりを待っています（最大10分）..."
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+
+      # --- フロントエンド ---
+
+      - name: Set up Node.js
+        if: inputs.deploy_frontend
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the frontend
+        if: inputs.deploy_frontend
+        run: npm ci && npm run build
+        working-directory: frontend
+
+      # **index.html だけ扱いを分ける。**
+      # ハッシュ付きのアセットは長期キャッシュ、index.html は no-cache にする。
+      # 分けないと、新しいアセットを置いても古い index.html が参照され続けて
+      # 更新が反映されない。
+      #
+      # 順序も逆にできない。**先に index.html を置くと、まだ存在しない
+      # アセットを参照する期間ができる。**
+      - name: Upload to S3
+        if: inputs.deploy_frontend
+        run: |
+          set -euo pipefail
+          aws s3 sync build/ "s3://$BUCKET/" --delete \
+            --exclude index.html \
+            --cache-control "public,max-age=31536000,immutable"
+          aws s3 cp build/index.html "s3://$BUCKET/index.html" \
+            --cache-control "no-cache"
+        working-directory: frontend
+        env:
+          BUCKET: ${{ vars.AWS_STATIC_BUCKET }}
+
+      - name: Invalidate index.html
+        if: inputs.deploy_frontend
+        run: |
+          set -euo pipefail
+          id=$(aws cloudfront create-invalidation \
+                 --distribution-id "$DISTRIBUTION_ID" --paths "/index.html" \
+                 --query 'Invalidation.Id' --output text)
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "$DISTRIBUTION_ID" --id "$id"
+        env:
+          DISTRIBUTION_ID: ${{ vars.AWS_CLOUDFRONT_DISTRIBUTION_ID }}
+
+      # **公開されている経路で確かめる。** ECS が安定しただけでは、
+      # CloudFront → ALB → アプリ の経路が通っている保証にならない。
+      #
+      # readyz は DB 疎通も見るため、マイグレーションの失敗もここで表に出る。
+      - name: Verify through CloudFront
+        run: |
+          set -euo pipefail
+          url="${{ vars.AWS_APP_URL }}/api/readyz"
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)
+            if [ "$code" = "200" ]; then
+              echo "readyz が 200 を返しました"
+              exit 0
+            fi
+            echo "  試行 $i: HTTP $code"
+            sleep 10
+          done
+          echo "::error::デプロイ後に $url が 200 を返しませんでした。"
+          exit 1
