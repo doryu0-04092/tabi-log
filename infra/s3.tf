@@ -4,6 +4,26 @@
 
 resource "aws_s3_bucket" "images" {
   bucket = var.images_bucket_name
+
+  # **中身があると destroy が失敗する。**
+  #
+  # S3 の DeleteBucket は空でないバケットを拒否する(409 BucketNotEmpty)。
+  # **AWS 側に強制削除のフラグは無い。** force_destroy は「全オブジェクトを
+  # 列挙して削除してから DeleteBucket を呼ぶ」というプロバイダの動作を指示する。
+  #
+  # このプロジェクトは「使わない期間は destroy する」運用を前提にしている。
+  # その前提と「中身があると消せない」は両立しない。ECR の force_delete と同じ割り切り。
+  #
+  # sns-application が実際にこれで詰まった(2026-08-30)。フロントエンドを配置した後の
+  # destroy が静的バケットだけ失敗し、後片付けが中途半端に終わった。
+  # **使わなければ気づかない種類の欠陥である。**
+  #
+  # **こちらは利用者の投稿画像が入る。** 静的バケットより重い判断になるが、
+  # destroy はバケットごと消す操作であり、中身を残す選択肢は元々無い。
+  # 「中身があるときだけ失敗する」は消えないことの保証にはならない。
+  #
+  # **本番では false にすること。** 消えては困るものが消える。
+  force_destroy = true
 }
 
 # ACL を無効にし、アクセス制御をバケットポリシーと IAM に一本化する。
@@ -142,6 +162,24 @@ resource "aws_s3_bucket_notification" "images" {
 
 resource "aws_s3_bucket" "static" {
   bucket = var.static_bucket_name
+
+  # **中身があると destroy が失敗する。**
+  #
+  # S3 の DeleteBucket は空でないバケットを拒否する(409 BucketNotEmpty)。
+  # **AWS 側に強制削除のフラグは無い。** force_destroy は「全オブジェクトを
+  # 列挙して削除してから DeleteBucket を呼ぶ」というプロバイダの動作を指示する。
+  #
+  # このプロジェクトは「使わない期間は destroy する」運用を前提にしている。
+  # その前提と「中身があると消せない」は両立しない。ECR の force_delete と同じ割り切り。
+  #
+  # sns-application が実際にこれで詰まった(2026-08-30)。フロントエンドを配置した後の
+  # destroy が静的バケットだけ失敗し、後片付けが中途半端に終わった。
+  # **使わなければ気づかない種類の欠陥である。**
+  #
+  # ここに入るのはビルド成果物だけで、失っても再ビルドで復元できる。
+  #
+  # **本番では false にすること。** 消えては困るものが消える。
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_ownership_controls" "static" {

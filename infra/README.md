@@ -73,7 +73,15 @@ terraform apply
 ECR=$(terraform output -raw ecr_repository_url)
 aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR%%/*}"
 
-docker build -f ../docker/Dockerfile.backend -t "$ECR:initial" ..
+# **--provenance=false --sbom=false を外さないこと。**
+# 付けないと buildx が attestation を含む OCI イメージインデックスを作り、
+# ECS Fargate がイメージを取得できないことがある。
+# sns-application が実際にこれで詰まっている。
+#
+# --platform も要る。Fargate は linux/amd64 で、開発機が別アーキテクチャだと
+# そのままでは起動しない。
+docker build --platform linux/amd64 --provenance=false --sbom=false \
+  -f ../docker/Dockerfile.backend -t "$ECR:initial" ..
 docker push "$ECR:initial"
 
 # タスクを入れ替える

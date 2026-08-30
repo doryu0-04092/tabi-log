@@ -139,6 +139,11 @@ type AuthConfig struct {
 	// 詐称してレート制限を回避できる。** どちらの向きにも誤ると壊れるため、
 	// 既定値には安全側（false）を置き、環境ごとに明示する。
 	TrustProxyHeaders bool
+
+	// TrustedProxyHops は X-Forwarded-For の末尾から数えて何個目を発信元とみなすか。
+	// CloudFront → ALB → アプリ なので既定は 1。
+	// **左端を採ると詐称でレート制限を回避される**(internal/httpapi/auth.go)。
+	TrustedProxyHops int
 }
 
 // DBConfig はデータベース接続の設定を表す。
@@ -201,6 +206,7 @@ func Load() (Config, error) {
 			CommentCreateLimit: envInt("COMMENT_CREATE_LIMIT", 60),
 			WriteLimitWindow:   envDuration("WRITE_LIMIT_WINDOW", time.Hour),
 			TrustProxyHeaders:  envBool("TRUST_PROXY_HEADERS", false),
+			TrustedProxyHops:   envInt("TRUSTED_PROXY_HOPS", 1),
 		},
 		Storage: StorageConfig{
 			Bucket:         envString("STORAGE_S3_BUCKET", ""),
