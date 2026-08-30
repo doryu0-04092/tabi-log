@@ -122,10 +122,5 @@ func writeFeedPage(
 }
 
 func feedError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, msg string, err error) {
-	attrs := []any{slog.String("request_id", RequestIDFrom(r.Context()))}
-	if err != nil {
-		attrs = append(attrs, slog.String("error", err.Error()))
-	}
-	logger.ErrorContext(r.Context(), msg, attrs...)
-	writeError(w, r, http.StatusInternalServerError, "internal_error", "サーバー内部でエラーが発生しました")
+	respondInternalError(w, r, logger, msg, err)
 }

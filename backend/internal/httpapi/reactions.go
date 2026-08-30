@@ -251,12 +251,7 @@ func canDeleteComment(perm store.CommentPermission, userID uint64) bool {
 }
 
 func (h *reactionHandler) internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {
-	attrs := []any{slog.String("request_id", RequestIDFrom(r.Context()))}
-	if err != nil {
-		attrs = append(attrs, slog.String("error", err.Error()))
-	}
-	h.logger.ErrorContext(r.Context(), msg, attrs...)
-	writeError(w, r, http.StatusInternalServerError, "internal_error", "サーバー内部でエラーが発生しました")
+	respondInternalError(w, r, h.logger, msg, err)
 }
 
 func toAPIComment(c domain.Comment, viewerID, postOwnerID uint64) gen.Comment {

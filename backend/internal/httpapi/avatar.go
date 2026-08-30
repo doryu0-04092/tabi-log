@@ -61,7 +61,9 @@ func (a *avatarResolver) fill(ctx context.Context, users []*gen.User) {
 	if viewerID != 0 && a.follows != nil {
 		got, err := a.follows.FollowedUserIDs(ctx, viewerID, ids)
 		if err != nil {
-			a.logger.ErrorContext(ctx, "フォローの状態を取得できない", slog.String("error", err.Error()))
+			// **相手が切っただけなら ERROR にしない**（response.go の説明）。
+			a.logger.Log(ctx, failureLevel(ctx, err), "フォローの状態を取得できない",
+				slog.String("error", err.Error()))
 		} else {
 			followed = got
 		}
@@ -96,7 +98,8 @@ func (a *avatarResolver) urls(ctx context.Context, userIDs []uint64) map[uint64]
 
 	keys, err := a.repo.AvatarKeys(ctx, userIDs)
 	if err != nil {
-		a.logger.ErrorContext(ctx, "アバターの鍵を取得できない", slog.String("error", err.Error()))
+		a.logger.Log(ctx, failureLevel(ctx, err), "アバターの鍵を取得できない",
+			slog.String("error", err.Error()))
 		return map[uint64]string{}
 	}
 
@@ -104,7 +107,7 @@ func (a *avatarResolver) urls(ctx context.Context, userIDs []uint64) map[uint64]
 	for id, key := range keys {
 		url, err := a.storage.DisplayURL(ctx, key, displayURLTTL)
 		if err != nil {
-			a.logger.ErrorContext(ctx, "アバターのURLを作れない",
+			a.logger.Log(ctx, failureLevel(ctx, err), "アバターのURLを作れない",
 				slog.Uint64("user_id", id), slog.String("error", err.Error()))
 			continue
 		}

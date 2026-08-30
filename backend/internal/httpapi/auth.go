@@ -431,11 +431,7 @@ func (h *authHandler) clientIP(r *http.Request) string {
 }
 
 func (h *authHandler) internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {
-	h.logger.ErrorContext(r.Context(), msg,
-		slog.String("request_id", RequestIDFrom(r.Context())),
-		slog.String("error", err.Error()),
-	)
-	writeError(w, r, http.StatusInternalServerError, "internal_error", "サーバー内部でエラーが発生しました")
+	respondInternalError(w, r, h.logger, msg, err)
 }
 
 func toAPIUser(u domain.User) gen.User {

@@ -136,12 +136,7 @@ func (h *notificationHandler) MarkAllNotificationsRead(w http.ResponseWriter, r 
 }
 
 func (h *notificationHandler) internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {
-	attrs := []any{slog.String("request_id", RequestIDFrom(r.Context()))}
-	if err != nil {
-		attrs = append(attrs, slog.String("error", err.Error()))
-	}
-	h.logger.ErrorContext(r.Context(), msg, attrs...)
-	writeError(w, r, http.StatusInternalServerError, "internal_error", "サーバー内部でエラーが発生しました")
+	respondInternalError(w, r, h.logger, msg, err)
 }
 
 func toAPINotification(n domain.Notification) gen.Notification {
