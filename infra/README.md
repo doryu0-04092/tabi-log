@@ -47,6 +47,8 @@ S3（画像・完全非公開）── PutObject ──→ Lambda（Go・EXIF �
 | `cloudfront.tf` | ディストリビューション |
 | `iam.tf` | 実行ロール・タスクロール・Lambda ロール |
 | `secrets.tf` | パスワードの生成と Parameter Store への登録 |
+| `migrate.tf` | **マイグレーションを流すタスク定義**とロググループ |
+| `cicd.tf` | **GitHub OIDC プロバイダとデプロイ用ロール**（CD が使う） |
 
 ## 使い方
 

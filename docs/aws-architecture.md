@@ -47,7 +47,7 @@ flowchart TD
       direction LR
       CF{{"ビヘイビア振り分け"}}
       B2["default<br/>S3 静的オリジン・OAC"]
-      B3["/images&#42;<br/>S3 画像オリジン・OAC<br/>署名付き Cookie"]
+      B3["/variants&#42;<br/>S3 画像オリジン・OAC<br/>署名付き Cookie"]
       B1["/api&#42;<br/>ALB オリジン<br/>CachingDisabled"]
       CF --> B2
       CF --> B3
@@ -86,6 +86,38 @@ flowchart TD
 | default（静的サイト） | `CachingOptimized` | **する**。Vite の出力はファイル名にハッシュが付くため長期キャッシュして安全。`index.html` のみ `no-cache` を付け、デプロイ時に invalidate する |
 | `/images/*` | `CachingOptimized` | **する**。URL が `/images/<key>` で固定のため、エッジもブラウザも効く |
 | `/api/*` | `CachingDisabled` | **しない（意図的）** |
+
+### マイグレーションは ECS のタスクとして VPC 内から流す
+
+**起動時の自動適用はしない。** スキーマの変更をデプロイから切り離すためである。
+
+データベースはプライベートサブネットにあり、**手元からは届かない。**
+そのため `migrate` を ECS タスクとして1回だけ動かす
+（`aws_ecs_task_definition.migrate` / `docker/run-migrate.sh`）。
+
+**パスワードをタスク定義に置かない。** `migrate` は DSN を引数で受け取るが、
+引数に書くとタスク定義に平文で残り、コンソールからも API からも読める。
+SSM から環境変数として注入し、コンテナの中で組み立てる。
+
+> **パスワードは URL エンコードが要る。** 生成されるパスワードには `%` `#` `?` が
+> 含まれ、`mysql://` は URL として解析されるため、素のまま埋めると壊れる
+> （`invalid URL escape`）。**アプリ本体は壊れない** — Go の mysql ドライバの
+> DSN は URL ではないためで、ここだけが URL 形式を要求している。
+
+### SPA のディープリンクは CloudFront Function で処理する
+
+`/discover` や `/posts/1` のような**拡張子を持たない URI** は、S3 にオブジェクトが
+無いため 404 になる。静的配信のビヘイビアにだけ Function を付け、`/index.html` へ
+書き換えている（`aws_cloudfront_function.spa_fallback`）。
+
+判定は「最後のセグメントにドットがあるか」。`/_app/immutable/xxx.js` は素通りする。
+
+> **`custom_error_response` は使わない。**
+> 403/404 を `/index.html` に差し替える書き方もあるが、**この設定は
+> ディストリビューション全体に効き、ビヘイビアごとに限定できない。**
+> 実際にそれで `/api/*` の 403・404 まで `200 + HTML` に化けていた（2026-08-30 に修正）。
+> **フロントエンドの「見つからない」「権限がない」の処理が、本番でだけ
+> 丸ごと機能しない状態だった。** ローカルには CloudFront が無いため、テストは全て通る。
 
 **`/api/*` をキャッシュしないのは性能上の妥協ではなく安全性の判断である。**
 このAPIはアクセストークンで認証しており、レスポンスが閲覧者ごとに異なる
