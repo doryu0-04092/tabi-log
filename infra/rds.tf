@@ -110,28 +110,27 @@ resource "aws_db_instance" "main" {
 
 # **「タスク数 × プール上限 ≦ max_connections」を満たす必要がある。**
 #
-# db.t4g.small（2GB）の max_connections は既定の式
-# {DBInstanceClassMemory/12582880} でおよそ 170 になる。
-# 2タスク × 25 = 50 は収まるが、**タスクを増やすときはここが上限の根拠**になる。
+# db.t4g.micro（1GB）の max_connections は既定の式
+# {DBInstanceClassMemory/12582880} でおよそ 85 になる。
+# 1タスク × 25 = 25 は収まるが、**タスクやクラスを変えるときは
+# ここが上限の根拠**になる（見積もりは db_estimated_max_connections）。
 #
 # 計算で止めるのではなく、超える構成を書いたときに気づけるようにしておく。
 locals {
-  # 控えめに見積もる。実測ではもう少し大きいが、余裕を持たせる。
-  estimated_max_connections = 170
-  planned_connections       = var.desired_count * var.db_max_connections_headroom
+  planned_connections = var.desired_count * var.db_max_connections_headroom
 }
 
 resource "terraform_data" "connection_budget" {
   # **plan の時点で落ちる。** apply してから気づくのでは遅い。
   lifecycle {
     precondition {
-      condition = local.planned_connections <= local.estimated_max_connections
+      condition = local.planned_connections <= var.db_estimated_max_connections
       error_message = format(
-        "接続数が上限を超える見込みです: タスク %d × プール %d = %d > 約%d。タスク数を減らすか、インスタンスクラスを上げてください。",
+        "接続数が上限を超える見込みです: タスク %d × プール %d = %d > 約%d。タスク数を減らすか、インスタンスクラスを上げて db_estimated_max_connections も上げてください。",
         var.desired_count,
         var.db_max_connections_headroom,
         local.planned_connections,
-        local.estimated_max_connections,
+        var.db_estimated_max_connections,
       )
     }
   }

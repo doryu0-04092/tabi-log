@@ -184,6 +184,35 @@ URL が変わらないので、エッジにもブラウザにも載る。
 **アップロードは CloudFront を通らない。** ブラウザは S3 の署名付き URL へ
 直接 PUT する。CloudFront は読む側だけを担う。
 
+## 既定は「動作確認のための最小構成」である
+
+**想定規模を捌く構成ではない。** 常時動かさない前提で、確認して destroy する
+温度感に合わせてある（課題の資料でも「作って動作確認したら即消すくらいの
+温度感でよい」とされている）。
+
+| 項目 | 既定（確認用） | 想定規模で測るとき |
+|---|---|---|
+| Fargate | 0.25 vCPU / 512MB × **1タスク** | 0.5 vCPU / 1GB × 2タスク |
+| RDS | **db.t4g.micro** | db.t4g.small |
+| `db_estimated_max_connections` | 85（micro の目安） | 170（small の目安） |
+
+**1タスクではデプロイ中と障害時に止まる。** 冗長性が要るなら 2 にする。
+
+**この構成で測った数字は、想定構成の性能を表さない。** 負荷を測るときは
+上の右列に戻すこと（`terraform.tfvars` で上書きできる）。
+
+```hcl
+# 想定規模で測るとき
+task_cpu                     = 512
+task_memory                  = 1024
+desired_count                = 2
+db_instance_class            = "db.t4g.small"
+db_estimated_max_connections = 170
+```
+
+**クラスを上げたら `db_estimated_max_connections` も上げること。**
+上げ忘れると、実際には収まる構成が plan の precondition で弾かれる。
+
 ## 本番運用するなら変えるところ
 
 **以下は意図的に費用を優先した箇所である。**
@@ -192,7 +221,7 @@ URL が変わらないので、エッジにもブラウザにも載る。
 |---|---|---|
 | Fargate の配置 | パブリックサブネット + パブリック IP | プライベート + NAT、または VPC エンドポイント群 |
 | RDS | Single-AZ・削除保護なし・保持1日 | Multi-AZ・削除保護あり・保持7〜35日 |
-| タスク数 | 2（固定） | Auto Scaling。**判断の指標は ECS の CPU ではなく RDS の CPU** |
+| タスク数 | 1（固定） | Auto Scaling。**判断の指標は ECS の CPU ではなく RDS の CPU** |
 | ドメイン | CloudFront の既定 | 独自ドメイン + ACM(us-east-1) + Route53 |
 | WAF | なし | CloudFront に付ける |
 | レート制限 | アプリのメモリ内 | **2タスクでは実効的な上限が2倍になる。** ElastiCache か WAF |
