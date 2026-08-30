@@ -142,9 +142,15 @@ data "aws_iam_policy_document" "github_actions_deploy" {
   # 切り離すため）。そのため CD が明示的に流せる必要がある。
   # RunTask は「どのタスク定義でも起動できる」状態にしない。
   statement {
-    sid       = "EcsRunMigrate"
-    actions   = ["ecs:RunTask"]
-    resources = ["${replace(aws_ecs_task_definition.migrate.arn, "/:\\d+$/", "")}:*"]
+    sid     = "EcsRunMigrate"
+    actions = ["ecs:RunTask"]
+    # **リビジョン番号を落として :* にする。** ARN をそのまま書くと、
+    # 移行を1つ足してリビジョンが上がった瞬間に権限から外れる。
+    #
+    # **正規表現に d は使えない。** HCL の文字列として不正なエスケープになる
+    # (terraform console で確認: The symbol d is not a valid escape sequence selector)。
+    # [0-9] なら通ることを確認済み。**apply して初めて分かる誤りだった。**
+    resources = ["${replace(aws_ecs_task_definition.migrate.arn, "/:[0-9]+$/", "")}:*"]
 
     condition {
       test     = "ArnEquals"
@@ -188,9 +194,13 @@ data "aws_iam_policy_document" "github_actions_deploy" {
 
   # --- 移行の結果を読む ---
   statement {
-    sid       = "ReadMigrateLogs"
-    actions   = ["logs:DescribeLogStreams", "logs:GetLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.migrate.arn}:*"]
+    sid     = "ReadMigrateLogs"
+    actions = ["logs:DescribeLogStreams", "logs:GetLogEvents"]
+    # **末尾の :* を一度落としてから付け直す。**
+    # aws_cloudwatch_log_group.arn は :* を含む形と含まない形があり、
+    # そのまま連結すると :*:* になって権限が一致しない。
+    # trimsuffix ならどちらの形でも同じ結果になる(確認済み)。
+    resources = ["${trimsuffix(aws_cloudwatch_log_group.migrate.arn, ":*")}:*"]
   }
 
   # --- S3: フロントエンドの配置 ---
