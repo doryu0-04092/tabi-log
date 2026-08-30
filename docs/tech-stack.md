@@ -72,7 +72,8 @@ Vite は上記のとおり前回使用しており、本来なら除外対象で
 | バリデーション | `go-playground/validator` | 前回の Bean Validation に相当する宣言的な検証 |
 | ログ | **標準の `log/slog`** で構造化 JSON を標準出力へ | 前回は Logback ＋ logstash-logback-encoder を使った。同じ思想（出力先をアプリが知らない／12-factor）を**依存ゼロ**で実現できる |
 | リクエスト追跡 | 自前ミドルウェアで UUID を発行し `context.Context` で伝播、`X-Request-Id` で返却 | 前回の MDC に相当。**ヘッダー・Cookie・ボディ・クエリ文字列はログ出力の経路に渡さない**設計を踏襲する（マスキングは消し忘れで漏れるため、経路自体を作らない） |
-| AWS SDK | `aws-sdk-go-v2`。CloudFront 署名は `feature/cloudfront/sign` | 前回の S3 / CloudFront 設計を Go へ移植する |
+| AWS SDK | `aws-sdk-go-v2`（S3 のみ） | 前回の S3 設計を Go へ移植する |
+| CloudFront の署名 | **標準ライブラリのみ**（`crypto/rsa` + `encoding/base64`） | 署名付き Cookie の形式は RSA-SHA1 と置換 base64 と決まっており、**選択の余地が無い**。SDK の `feature/cloudfront/sign` を足すこともできたが、40行程度のために依存を増やす理由が無いと判断した。**AWS が公開している符号化の例と一致することをテストで固定している** |
 
 ### 認証
 
