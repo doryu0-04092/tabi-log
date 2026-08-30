@@ -258,3 +258,28 @@ variable "migrate_image_tag" {
   type        = string
   default     = "migrate"
 }
+
+variable "github_oidc_provider_arn" {
+  description = <<-EOT
+    既存の GitHub OIDC プロバイダの ARN。空なら新規に作成する。
+
+    **OIDC プロバイダは AWS アカウントに1つしか作れない。**
+    同じアカウントで別のリポジトリ（sns-application 等）が既に作っている場合は、
+    その ARN をここに渡すこと。渡さないと EntityAlreadyExists で apply が失敗する。
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "github_deploy_subjects" {
+  description = <<-EOT
+    デプロイ用ロールを引き受けられる GitHub Actions の実行元（OIDC トークンの sub）。
+
+    **ここを絞らないと、GitHub 上のどのリポジトリからでもこのロールを
+    引き受けられる。** OIDC 設定で最も多い致命的な誤りがこれ。
+
+    既定は main ブランチからの実行のみ。
+  EOT
+  type        = list(string)
+  default     = ["repo:doryu0-04092/tabi-log:ref:refs/heads/main"]
+}

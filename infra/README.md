@@ -117,6 +117,126 @@ aws cloudfront create-invalidation \
   --paths "/index.html"
 ```
 
+## デプロイの自動化（CD）
+
+`.github/workflows/deploy.yml` が、上の1〜3を自動で行う。
+**`terraform apply` は含まない。** state をローカルで管理しており（`versions.tf`）、
+CI から共有できないためである。インフラも CD に載せるなら、先に state を S3 へ移す。
+
+### 認証
+
+**アクセスキーは発行しない。** GitHub の OIDC トークンを AWS に信頼させ、
+実行のたびに一時的な認証情報を受け取る（`infra/cicd.tf`）。
+
+信頼ポリシーでは `aud` と `sub` の両方を確認する。
+**`sub` を絞らないと、GitHub 上のどのリポジトリからでもこのロールを引き受けられる。**
+許可する実行元は `github_deploy_subjects` 変数で、既定は main ブランチのみ。
+
+> **OIDC プロバイダは AWS アカウントに1つしか作れない。**
+> このアカウントでは sns-application も同じものを作る。**両方を同時にデプロイする場合は、
+> 後から作る側が `github_oidc_provider_arn` に既存の ARN を受け取る**こと。
+> 渡さないと `EntityAlreadyExists` で apply が失敗する。
+
+### 初回の設定
+
+`terraform apply` 後、出力値をリポジトリの **Variables** に登録する
+（Secrets でなくてよい。ARN やバケット名は秘密ではなく、引き受けられるのは
+信頼ポリシーで許可した実行元だけのため）。
+
+```bash
+cd infra
+gh variable set AWS_DEPLOY_ROLE_ARN            --body "$(terraform output -raw github_actions_role_arn)"
+gh variable set AWS_STATIC_BUCKET              --body "$(terraform output -raw static_bucket)"
+gh variable set AWS_CLOUDFRONT_DISTRIBUTION_ID --body "$(terraform output -raw cloudfront_distribution_id)"
+gh variable set AWS_APP_URL                    --body "$(terraform output -raw app_url)"  # スキーム込みのURLが返る
+```
+
+**CloudFront のドメインと ID は、作り直すたびに変わる。**
+destroy 後も古い値が残るため、次に apply したら必ず登録し直すこと。
+古い値が残っていても、CD は最初の「ECS サービスが存在するか」の確認で止まるため
+誤った環境へデプロイすることはない。**ただし値そのものは信用してはいけない。**
+
+### 実行
+
+**手動起動（`workflow_dispatch`）にしている。**
+このプロジェクトは「使わない期間は destroy する」運用のため、
+main への push で自動デプロイすると環境が無い期間はマージのたびに失敗し、
+**赤いバッジが常態化して誰も見なくなる**。
+常時稼働に変えるなら `on:` に `push` を足すだけでよい。
+
+```bash
+gh workflow run Deploy
+gh workflow run Deploy -f run_migrations=true          # スキーマを変えたとき
+gh workflow run Deploy -f deploy_frontend=false        # バックエンドだけ
+```
+
+### マイグレーションの順序（**ここが sns-application と最も違う**）
+
+**tabi-log は起動時に自動適用しない。** スキーマの変更をデプロイから切り離すためである。
+そのぶん、変えたときは `run_migrations=true` を指定する必要がある。
+
+CD は**マイグレーションをアプリより先に流す**。逆にすると、
+新しいコードが古いスキーマの上で動く時間ができるためである。
+
+**ただし、列を削除する変更ではこの順序が逆に働く。**
+先に消すと、まだ動いている古いコードが落ちる。その場合は分けること。
+
+| 変更の種類 | 進め方 |
+|---|---|
+| 列やテーブルを**足す** | そのまま `run_migrations=true` で1回 |
+| 列を**消す** | ①使わないコードを配る → ②消す移行を流す、の**2回に分ける** |
+| 列の**型を変える** | 足す→両方書く→移す→古い方を消す。**自動化できない** |
+
+**CD が自動化できるのは前半だけである。** ここを一括で流せる形にすると、
+「消す移行」を含む変更で本番が落ちる。
+
+### 何を確かめてから成功とするか
+
+| 段階 | 確認 |
+|---|---|
+| 開始前 | ECS サービスが ACTIVE か。**destroy 済みならここで止める** |
+| マイグレーション | **タスクの終了コード**。停止しただけでは成功とは限らない。見落とすとスキーマが古いままアプリだけ新しくなる。ログも必ず出す |
+| バックエンド | `ecs wait services-stable`。**待たずに終えると、起動に失敗して古いタスクへ戻っていても「成功」と表示される** |
+| フロントエンド | `cloudfront wait invalidation-completed` |
+| 最後 | **CloudFront 経由で `/api/readyz` が 200**。ECS が安定しただけでは経路が通っている保証にならない。`readyz` は DB 疎通も見るため、移行の失敗もここで表に出る |
+
+### CD に含めていないもの
+
+| 対象 | 理由 |
+|---|---|
+| `terraform apply` | state がローカルにあり CI から共有できない |
+| **画像処理 Lambda** | Terraform が `source_code_hash` で管理している。CD から更新すると次の apply で巻き戻る。**変更したら `terraform apply` で配ること** |
+
+### タスク定義の所有者
+
+CD は**現行のタスク定義のイメージだけを差し替えて**新しいリビジョンを登録する。
+環境変数・秘密・CPU/メモリには触れない。作り直すと Terraform の定義と食い違うためである。
+
+あわせて `aws_ecs_service.backend` に `ignore_changes = [task_definition]` を付けた。
+**これが無いと、デプロイ後の `terraform apply` がサービスを Terraform 側の
+リビジョンへ黙って戻す。** 障害時にロールバックしていた場合、
+それを勝手に取り消して再び壊れた版を配ることになる。
+
+| 対象 | 所有者 |
+|---|---|
+| サービスの構成（ネットワーク・LB・サーキットブレーカー） | Terraform |
+| **どのリビジョンが動いているか** | CD |
+
+### 未検証の点（正直に）
+
+**このワークフローはまだ一度も実行していない。** 現在 AWS 上にリソースが無いためである。
+確認できているのはここまで。
+
+- ワークフロー YAML の構文（パーサで検証）
+- 各 `run` ブロックのシェル構文（`bash -n`、11ブロックすべて）
+- Terraform の構文と整合（`terraform validate`）
+- `app_url` がスキーム込みで返ること（sns-application で二重スキームの不具合を踏んだため確認した）
+
+**確認できていないのは、実際に AWS に対して通るかどうかである。**
+IAM の権限が過不足なく足りているかは、一度デプロイするまで分からない。
+
+---
+
 ### 片付け
 
 ```bash

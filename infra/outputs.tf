@@ -78,3 +78,18 @@ output "tasks_security_group" {
   description = "run-task に渡すセキュリティグループ。RDS への :3306 が開いている。"
   value       = aws_security_group.tasks.id
 }
+
+output "ecs_task_family" {
+  description = "タスク定義のファミリー名。CD が現行定義の取得に使う。"
+  value       = aws_ecs_task_definition.backend.family
+}
+
+output "github_actions_role_arn" {
+  description = <<-EOT
+    GitHub Actions が AssumeRole するロールの ARN。
+    リポジトリの Variables に AWS_DEPLOY_ROLE_ARN として登録する
+    （Secrets でなくてよい。ARN 自体は秘密ではなく、引き受けられるのは
+    信頼ポリシーで許可した実行元だけのため）。
+  EOT
+  value       = aws_iam_role.github_actions.arn
+}
