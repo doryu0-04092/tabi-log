@@ -112,31 +112,47 @@ variable "task_cpu" {
   description = <<-EOT
     タスクの CPU（1024 = 1 vCPU）。
 
-    **512（0.5 vCPU）が出発点である。** ピーク50 req/s の想定に対し、
-    前回の 256（1/4コア）では足りないと判断して上げた。
-    **負荷試験の実測で上下させる値**であり、根拠のある固定値ではない。
+    **既定は 256（1/4コア）。動作確認のための最小構成である。**
+
+    想定ピーク（50 req/s）を捌く構成は 512（0.5 vCPU）× 2タスクだが、
+    **常時動かさない前提**なので、確認用にはここまで落とす。
+    課題の資料でも「作って動作確認したら即消すくらいの温度感でよい」
+    とされている。
+
+    **負荷を測るときは 512 に戻すこと。** 256 で測った数字は
+    想定構成の性能を表さない。
   EOT
   type        = number
-  default     = 512
+  default     = 256
 }
 
 variable "task_memory" {
-  description = "タスクのメモリ（MiB）。Fargate は CPU との組み合わせが決まっている"
+  description = <<-EOT
+    タスクのメモリ（MiB）。
+
+    **Fargate は CPU との組み合わせが決まっている。**
+    256 に対して選べるのは 512 / 1024 / 2048 のみ。
+  EOT
   type        = number
-  default     = 1024
+  default     = 512
 }
 
 variable "desired_count" {
   description = <<-EOT
     動かすタスクの数。
 
-    **2にしているのは、1つ落ちても止まらないようにするため**である。
+    **既定は 1。動作確認のための最小構成である。**
+
+    **1では、デプロイ中と障害時に止まる。** 冗長性が要るなら 2 にする
+    （タスクが1つ落ちても残りが受ける）。常時動かさない前提なので、
+    確認用には 1 で足りる。
+
     自動増減（Application Auto Scaling）は入れていない。
     入れる場合、増やす判断の指標は ECS タスクの CPU ではなく
     **RDS の CPU** が適切である（先に詰まるのはデータベース側のため）。
   EOT
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "image_tag" {
@@ -183,11 +199,15 @@ variable "db_instance_class" {
   description = <<-EOT
     RDS のインスタンスクラス。
 
-    **db.t4g.small を選ぶ理由**: 投稿20万件・いいね200万行の想定に対し、
-    micro のバッファプール（実質600MB程度）にデータと索引が乗り切らない。
+    **既定は db.t4g.micro。動作確認のための最小構成である。**
+    MySQL 8.4.9 + gp3（最小20GB）で選べることを確認済み（2026-08-30）。
+
+    **想定規模では足りない。** 投稿20万件・いいね200万行に対し、
+    micro のバッファプール（実質600MB程度）にはデータと索引が乗り切らない。
+    **負荷を測るときは db.t4g.small に戻すこと。**
   EOT
   type        = string
-  default     = "db.t4g.small"
+  default     = "db.t4g.micro"
 }
 
 variable "db_allocated_storage" {
@@ -198,12 +218,32 @@ variable "db_allocated_storage" {
 
 variable "db_max_connections_headroom" {
   description = <<-EOT
-    接続数の検算に使う、想定するタスクあたりの接続プール上限。
+    接続数の検算に使う、タスクあたりの接続プール上限。
 
     **「タスク数 × プール上限 ≦ max_connections」を満たす必要がある。**
-    2タスク × 25 = 50 に対し db.t4g.small の max_connections は約225で成立する。
-    タスクを増やすときは、この式が上限の根拠になる（9タスクで届く）。
+    1タスク × 25 = 25。db.t4g.micro（1GB）の max_connections は
+    既定の式 {DBInstanceClassMemory/12582880} でおよそ 85 なので成立する。
+
+    **タスクを増やすときは、この式が上限の根拠になる。**
   EOT
   type        = number
   default     = 25
+}
+
+variable "db_estimated_max_connections" {
+  description = <<-EOT
+    インスタンスクラスごとの max_connections の見積もり。
+
+    **控えめに置く。** 実測はもう少し大きいが、余裕を持たせる。
+    この値は「超える構成を書いたら plan の時点で落とす」ためだけに使う
+    （rds.tf の precondition）。
+
+      db.t4g.micro（1GB） → 約 85
+      db.t4g.small（2GB） → 約 170
+
+    **クラスを上げたらこの値も上げること。** 上げ忘れると、
+    実際には収まる構成が plan で弾かれる。
+  EOT
+  type        = number
+  default     = 85
 }
