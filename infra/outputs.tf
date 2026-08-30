@@ -63,3 +63,18 @@ output "log_groups" {
     imageworker = aws_cloudwatch_log_group.imageworker.name
   }
 }
+
+output "migrate_task_family" {
+  description = "マイグレーションを流すタスク定義。docker/run-migrate.sh が使う。"
+  value       = aws_ecs_task_definition.migrate.family
+}
+
+output "private_subnets_for_tasks" {
+  description = "run-task に渡すサブネット。ECSサービスと同じものを使う。"
+  value       = aws_subnet.public[*].id
+}
+
+output "tasks_security_group" {
+  description = "run-task に渡すセキュリティグループ。RDS への :3306 が開いている。"
+  value       = aws_security_group.tasks.id
+}
