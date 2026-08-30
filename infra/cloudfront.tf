@@ -56,6 +56,33 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
 
 # ---------------------------------------------------------------------------
 
+# 拡張子を持たない URI を /index.html に書き換える。
+#
+# **静的配信のビヘイビアにだけ付ける。** ここが custom_error_response との違いで、
+# /api/* と /variants/* のエラーには一切触れない。
+#
+# 判定は「最後のセグメントにドットがあるか」。
+# /discover や /posts/1 は書き換え、/_app/immutable/xxx.js はそのまま通す。
+resource "aws_cloudfront_function" "spa_fallback" {
+  name    = "${var.project}-spa-fallback"
+  runtime = "cloudfront-js-2.0"
+  comment = "拡張子を持たない URI を /index.html に書き換える(SPA のディープリンク対応)"
+  publish = true
+
+  code = <<-JS
+    function handler(event) {
+      var request = event.request;
+      var uri = request.uri;
+
+      var lastSegment = uri.substring(uri.lastIndexOf("/") + 1);
+      if (lastSegment === "" || lastSegment.indexOf(".") === -1) {
+        request.uri = "/index.html";
+      }
+
+      return request;
+    }
+  JS
+}
 resource "aws_cloudfront_distribution" "main" {
   enabled = true
   comment = var.project
@@ -116,6 +143,11 @@ resource "aws_cloudfront_distribution" "main" {
     cache_policy_id = data.aws_cloudfront_cache_policy.optimized.id
 
     compress = true
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_fallback.arn
+    }
   }
 
   # --- /api/*: ALB へ ---------------------------------------------------
@@ -185,19 +217,20 @@ resource "aws_cloudfront_distribution" "main" {
   #
   # **404 ではなく 403 を拾うのは、バケットを非公開にしているためである。**
   # 非公開のバケットは「無い」ではなく「読めない」を返す。
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
+  # **custom_error_response は使わない。**
+  #
+  # SPA のディープリンク対応として 403/404 を /index.html に差し替える書き方があるが、
+  # **この設定はディストリビューション全体に効き、ビヘイビアごとに限定できない。**
+  # そのため /api/* の 403 と 404 まで 200 + HTML に化ける。
+  #
+  # 実際にデプロイして確認した(2026-08-30):
+  #
+  #   他人の画像を見る  仕様 403 JSON  ->  実際 200 text/html
+  #   存在しない経路    仕様 404 JSON  ->  実際 200 text/html
+  #   未認証            仕様 401 JSON  ->  実際 401 JSON（401は対象外なので無事）
+  #
+  # **ローカルでは絶対に出ない。** CloudFront が無いためである。
+  # 代わりに、静的配信のビヘイビアにだけ Function を付けて書き換える。
 
   restrictions {
     geo_restriction {

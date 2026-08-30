@@ -247,3 +247,14 @@ variable "db_estimated_max_connections" {
   type        = number
   default     = 85
 }
+
+variable "migrate_image_tag" {
+  description = <<-EOT
+    マイグレーション用イメージのタグ。バックエンドと同じ ECR リポジトリに置く。
+
+    **バックエンドのイメージとは中身が違う**（migrate バイナリと SQL が入っている）。
+    タグで分けているだけなので、`image_tag` と同じ値にしないこと。
+  EOT
+  type        = string
+  default     = "migrate"
+}

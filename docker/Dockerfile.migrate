@@ -1,0 +1,20 @@
+# マイグレーションを VPC 内から流すための使い捨てイメージ。
+#
+# **RDS はプライベートサブネットにあり、手元からは届かない。**
+# そのため migrate を ECS タスクとして VPC 内で1回だけ動かす
+# (infra/README.md が挙げている2案のうち「ECS のタスクから流す」)。
+#
+# ローカル・CI と同じ migrate/migrate v4.19.0 を土台にする。
+# **版を揃えないと、同じSQLでも挙動が変わりうる。**
+FROM migrate/migrate:v4.19.0
+
+# SQL をイメージに焼き込む。ECS のタスクはローカルのファイルを
+# ボリュームで渡せないため、docker compose と同じ手は使えない。
+COPY backend/db/migrations /migrations
+
+# **DSN を引数で渡さない。** 引数にするとタスク定義にパスワードが平文で残り、
+# コンソールや CloudTrail から読めてしまう。
+# 環境変数(SSM から注入)を受け取って、コンテナの中で組み立てる。
+COPY docker/migrate-entrypoint.sh /usr/local/bin/migrate-entrypoint.sh
+
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/migrate-entrypoint.sh"]
