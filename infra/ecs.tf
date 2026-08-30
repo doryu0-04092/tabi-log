@@ -120,6 +120,8 @@ resource "aws_ecs_task_definition" "backend" {
       # これを false のままにすると、レート制限の鍵が
       # 全リクエストで ALB の IP になり、まったく効かなくなる。
       { name = "TRUST_PROXY_HEADERS", value = "true" },
+      # CloudFront → ALB → アプリ の2段。**構成の段数を変えたら必ず変える。**
+      { name = "TRUSTED_PROXY_HOPS", value = "1" },
     ]
 
     secrets = [

@@ -74,6 +74,26 @@ type AuthOptions struct {
 	// **攻撃者がヘッダーを自由に詐称してレート制限を回避できる。**
 	// どちらの向きにも誤ると壊れるため、環境ごとに明示的に設定する。
 	TrustProxyHeaders bool
+
+	// TrustedProxyHops は X-Forwarded-For の末尾から数えて何個目を
+	// 「実際の接続元」とみなすか。アプリの手前にある信頼できるプロキシのうち、
+	// 自分自身を除いた段数である。CloudFront → ALB → アプリ なら 1。ALB直結なら 0。
+	//
+	// **左端を採ってはいけない。** X-Forwarded-For の左端はクライアントが
+	// 自分で名乗った値であり、リクエストごとに詐称できる。左端を鍵にすると
+	// 鍵が毎回変わり、レート制限が事実上無効になる。
+	//
+	// プロキシは受け取った値の末尾に、自分が観測した接続元を追記する。
+	// したがって信頼できるのは「自分より手前の段が書いた分」だけである。
+	//
+	//	クライアントが詐称   : 1.2.3.4
+	//	CloudFront が追記     : 1.2.3.4, 203.0.113.9
+	//	ALB が追記            : 1.2.3.4, 203.0.113.9, 130.176.0.1
+	//	                                 ^^^^^^^^^^^^ これが利用者
+	//
+	// **構成の段数を変えたら必ずこの値も変える。** 大きすぎると詐称できる領域に届き、
+	// 小さすぎると全員が同じプロキシのIPとして1つの鍵に潰れる。
+	TrustedProxyHops int
 }
 
 type authHandler struct {
@@ -412,15 +432,14 @@ func (h *authHandler) clearRefreshCookie(w http.ResponseWriter) {
 }
 
 // clientIP はレート制限の鍵に使う発信元を返す。
+//
+// **左端は採らない。** 詳細は AuthOptions.TrustedProxyHops のコメントを参照。
 func (h *authHandler) clientIP(r *http.Request) string {
 	if h.opts.TrustProxyHeaders {
-		// X-Forwarded-For は「クライアント, プロキシ1, プロキシ2」の順に並ぶ。
-		// 最も左が元のクライアントである。
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if i := strings.IndexByte(xff, ','); i > 0 {
-				return strings.TrimSpace(xff[:i])
+			if ip := forwardedHop(xff, h.opts.TrustedProxyHops); ip != "" {
+				return ip
 			}
-			return strings.TrimSpace(xff)
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -428,6 +447,22 @@ func (h *authHandler) clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// forwardedHop は X-Forwarded-For の末尾から hops 個目を返す。
+//
+// 想定より段数が少ない場合は末尾へ倒す。**左へ寄せるとクライアントが書いた値を掴む。**
+// 末尾はどの構成でも直前のプロキシが自分で書いた値であり、クライアントには操作できない。
+func forwardedHop(xff string, hops int) string {
+	if hops < 0 {
+		hops = 0
+	}
+	parts := strings.Split(xff, ",")
+	i := len(parts) - 1 - hops
+	if i < 0 {
+		i = len(parts) - 1
+	}
+	return strings.TrimSpace(parts[i])
 }
 
 func (h *authHandler) internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {

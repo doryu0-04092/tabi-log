@@ -119,6 +119,7 @@ func run() error {
 			// TRUST_PROXY_HEADERS=true にしないと、全利用者が同じ発信元と
 			// みなされてレート制限が機能しなくなる。
 			TrustProxyHeaders: cfg.Auth.TrustProxyHeaders,
+			TrustedProxyHops:  cfg.Auth.TrustedProxyHops,
 		},
 		LoginAttemptLimit:  cfg.Auth.LoginAttemptLimit,
 		PostCreateLimit:    cfg.Auth.PostCreateLimit,
