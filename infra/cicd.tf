@@ -60,6 +60,10 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
 
     # **ここが最も重要。** sub を絞らないと、GitHub 上の**どのリポジトリからでも**
     # このロールを引き受けられる。OIDC の設定で最も多い致命的な誤りがこれである。
+    #
+    # **所有者名とリポジトリ名だけでは一致しない。** GitHub が発行する sub には
+    # ID が埋め込まれている（repo:<所有者>@<ID>/<名前>@<ID>:ref:...）。
+    # 2026-08-31 に CD の初回実行がこれで落ちた。詳細は variables.tf を見ること。
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
