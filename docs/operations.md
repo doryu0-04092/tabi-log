@@ -327,7 +327,7 @@ CloudWatch Dashboard を **Terraform で定義する**（手作業で作らな�
 | 項目 | 状態 |
 |---|---|
 | CloudWatch EMF によるメトリクス | 未実装。AWS へ載せる作業とあわせて入れる |
-| アラートの設定（CloudWatch Alarms + SNS） | **画像処理の2件だけ実装済み**（DLQ の滞留と Lambda の Errors、`infra/lambda.tf`）。§3.2 の API 側の条件は決めてあるが、まだ鳴らない |
+| アラートの設定（CloudWatch Alarms + SNS） | **画像処理の2件は実装済みで、通知先も設定済み**（DLQ の滞留と Lambda の Errors、`infra/lambda.tf`。2026-09-01 に apply）。§3.2 の API 側の条件は決めてあるが、まだ鳴らない |
 | ダッシュボード | 未実装 |
 | 資源側の閾値（A6・A7 ほか） | **暫定。AWS で実測して確定する** |
 | 本番相当での負荷試験 | **2026-08-31 に AWS で実施済み**（load p95 89.5ms、stress 304.9 req/s、エラー0件。限界は Fargate CPU で RDS は余っていた。`perf/README.md`） |
