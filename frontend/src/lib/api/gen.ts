@@ -1250,9 +1250,14 @@ export interface components {
                 mediaId: number;
                 /**
                  * @description `pending`   … 署名付きURLを発行したが、まだ届いていない
-                 *     `uploaded`  … 届いたが処理中
                  *     `processed` … **投稿に使える**
                  *     `failed`    … 画像として扱えなかった。投稿には使えない
+                 *
+                 *     `uploaded` は定義してあるが**実際には返らない**。
+                 *     S3 にファイルが置かれたことを知る経路は S3 → Lambda の
+                 *     イベント通知しかなく、その Lambda が変換まで済ませるため、
+                 *     「届いたが処理前」の状態で応答する瞬間が無い。
+                 *     受信と変換を分けるなら復活する値なので、消さずに残してある。
                  * @enum {string}
                  */
                 status: "pending" | "uploaded" | "processed" | "failed";

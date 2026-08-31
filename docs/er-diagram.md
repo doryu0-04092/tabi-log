@@ -196,10 +196,21 @@ ngram パーサは既定でトークン長2で全文を機械的に刻む。
 | `bytes` | INT UNSIGNED | NULL | 処理後に確定 |
 | `alt_text` | VARCHAR(200) | NULL | **未使用**。代替テキストの入力を廃止したため（2026-08-29）。列は残してある |
 | `sort_order` | TINYINT UNSIGNED | NOT NULL, DEFAULT 0 | 投稿内での表示順（0〜3） |
-| `status` | ENUM | NOT NULL, DEFAULT `'pending'` | `pending` / `uploaded` / `processed` / `failed` |
+| `status` | ENUM | NOT NULL, DEFAULT `'pending'` | `pending` / ~~`uploaded`~~ / `processed` / `failed` |
 | `created_at` / `updated_at` | DATETIME(6) | NOT NULL | |
 
 **索引**: `UNIQUE(s3_key)` / `INDEX(post_id, sort_order)` / `INDEX(status, created_at)` / `INDEX(user_id)`
+
+> **`uploaded` は定義してあるが、実際には通らない。**
+>
+> 状態は `pending` から `processed`（または `failed`）へ直接進む。
+> S3 にファイルが置かれたことをアプリが知る経路は S3 → Lambda の
+> イベント通知しかなく、**その Lambda がそのまま変換まで済ませてしまう。**
+> 「置かれたが処理前」という状態でアプリが動く瞬間が存在しない。
+>
+> **消さずに残している。** S3 イベントの受信と変換を別々の処理に分けるなら
+> 復活する値である。ただし現状は通らないので、`uploaded` を前提にした分岐
+> （「`uploaded` なら再処理する」など）を書いても動かない。
 
 **`posts` に画像 URL を直接持たせない理由**: 画像を `posts.image_url` のような列で持つと、
 複数枚に対応した時点でテーブル構造とそれを読む全コードの作り直しになる。
@@ -253,11 +264,22 @@ S3 のライフサイクルルールで期限削除できる。これを行わ�
 |---|---|---|---|
 | `id` | BIGINT UNSIGNED | PK, AI | |
 | `media_id` | BIGINT UNSIGNED | NOT NULL, FK → `media.id` ON DELETE CASCADE | |
-| `kind` | ENUM | NOT NULL | `thumb`（長辺320）/ `medium`（長辺1080）/ `original` |
+| `kind` | ENUM | NOT NULL | `thumb`（長辺320）/ `medium`（長辺1080）/ ~~`original`~~ |
 | `s3_key` | VARCHAR(255) | NOT NULL | |
 | `width` / `height` | INT UNSIGNED | NOT NULL | |
 | `bytes` | INT UNSIGNED | NOT NULL | |
 | `created_at` | DATETIME(6) | NOT NULL | |
+
+> **`original` は定義してあるが、行として登録していない。**
+>
+> 作る変換物は `thumb` と `medium` の2つだけである。原本は S3 の
+> `originals/` に残してあるが、**`media_variants` には入れない。**
+>
+> この表は「配信できる画像」を並べるものであり、原本は配信対象ではない。
+> 原本を残す目的は後から別解像度を作り直せるようにすることで、
+> **EXIF が残っている可能性があるものを配信経路に載せない**ためでもある。
+>
+> **消さずに残している。** 原本そのものを配信する要件が出たら使う値である。
 
 **索引**: `UNIQUE(media_id, kind)`
 
