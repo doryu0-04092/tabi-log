@@ -2,7 +2,11 @@
 
 `docs/aws-architecture.md` の構成を Terraform で書いたもの。
 
-> **状態: `plan` まで通した。`apply` はしていない。**（2026-08-29）
+> **状態: 2026-08-30 に `apply` し、検証後 `destroy` 済み。** 現在リソースは無い。
+> 手順と結果は `docs/aws-architecture.md`、
+> 未検証の項目は `docs/deploy-verification.md` を参照。
+>
+> 直近の plan の結果（apply 前）:
 >
 > ```
 > Plan: 74 to add, 0 to change, 0 to destroy.
@@ -43,6 +47,8 @@ S3（画像・完全非公開）── PutObject ──→ Lambda（Go・EXIF �
 | `cloudfront.tf` | ディストリビューション |
 | `iam.tf` | 実行ロール・タスクロール・Lambda ロール |
 | `secrets.tf` | パスワードの生成と Parameter Store への登録 |
+| `migrate.tf` | **マイグレーションを流すタスク定義**とロググループ |
+| `cicd.tf` | **GitHub OIDC プロバイダとデプロイ用ロール**（CD が使う） |
 
 ## 使い方
 
