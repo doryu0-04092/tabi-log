@@ -165,36 +165,46 @@ test.describe('都道府県制覇マップ', () => {
 	});
 
 	/*
-	狭い画面で、地図だけが横に流れること。
+	地図の全体が画面に載ること。
 
-	**絵は 1536px 幅の画像で、縮めると県名も同じ比率で縮む。**
-	画面幅に合わせると 390px の端末で文字が 5px になり、読むことも
-	押すこともできない。縮めて読めなくするより、はみ出させて読めるほうを取る。
+	**本文は読みやすさのため 40rem に絞ってある**（`main` の `--measure`）。
+	その中に置くと地図は 608px しかもらえず、1920px の画面でも
+	横スクロールになっていた。**本文の幅は文章のためのもので、
+	図にまで効かせる理由が無い。**
 
-	ただし**ページ全体が横に溢れてはいけない。** 溢れると、地図と関係ない
-	本文まで横スクロールが要る画面になる。地図の枠の中だけで流す。
+	地図だけ本文の幅から出して、上限 80rem まで広げる。
+	一部しか見えない状態は、操作しづらいうえに見栄えも悪い。
+
+	ページ全体が横に溢れないことも同時に確かめる。
+	はみ出させ方を間違えると、地図と関係ない本文まで横スクロールが要る画面になる。
 	*/
-	test('狭い画面では地図だけが横に流れる', async ({ page }) => {
-		const me = await signup(page, { displayName: '狭い画面の人' });
+	test('地図の全体が画面に載る', async ({ page }) => {
+		const me = await signup(page, { displayName: '全体を見る人' });
 
-		await page.setViewportSize({ width: 390, height: 780 });
+		await page.setViewportSize({ width: 1280, height: 900 });
 		await page.goto(`/users/${me.handle}`);
 		await expect(page.getByRole('group', { name: '都道府県ごとの投稿' })).toBeVisible();
 
 		const measured = await page.evaluate(() => {
 			const doc = document.documentElement;
-			const svg = document.querySelector('svg[role="group"]');
-			const viewport = svg?.closest('div')?.parentElement;
+			const main = document.querySelector('main');
+			const viewport = document.querySelector('svg[role="group"]')?.parentElement;
 			return {
 				pageOverflow: doc.scrollWidth - doc.clientWidth,
-				mapOverflow: viewport ? viewport.scrollWidth - viewport.clientWidth : 0
+				mapOverflow: viewport ? viewport.scrollWidth - viewport.clientWidth : 0,
+				mapWidth: viewport ? viewport.clientWidth : 0,
+				mainWidth: main ? main.clientWidth : 0
 			};
 		});
 
-		// ページ全体は横に溢れない。
+		// **地図が切れていない。**
+		expect(measured.mapOverflow, '地図が横に切れている').toBeLessThanOrEqual(1);
+		// ページ全体も溢れていない。
 		expect(measured.pageOverflow, 'ページ全体が横に溢れている').toBeLessThanOrEqual(1);
-		// 地図は枠の中で横に流れる。
-		expect(measured.mapOverflow, '地図が横に流れていない（縮んでいる）').toBeGreaterThan(100);
+		// **本文の幅より広い。** 中に収めると小さすぎて読めない。
+		expect(measured.mapWidth, '地図が本文の幅に閉じ込められている').toBeGreaterThan(
+			measured.mainWidth
+		);
 	});
 
 	/*
