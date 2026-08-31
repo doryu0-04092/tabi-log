@@ -34,6 +34,13 @@ infra/.terraform/
 infra/*.tfstate
 infra/*.tfstate.*
 infra/*.tfvars
+
+# 保存した plan。**秘密が平文で入る。**
+# random_password で作った DB のパスワードと JWT の署名鍵、
+# CDN の秘密鍵が、適用前の値としてそのまま書かれている。
+terraform.tfplan
+infra/tfplan
+infra/*.tfplan
 !infra/*.tfvars.example
 crash.log
 
