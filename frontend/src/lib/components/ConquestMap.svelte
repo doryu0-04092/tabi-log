@@ -4,20 +4,79 @@
 	import {
 		PREFECTURE_TILES,
 		REGION_HUES,
-		TILE_COLUMNS,
-		TILE_ROWS
+		TILE_GAP,
+		TILE_UNIT_X,
+		TILE_UNIT_Y
 	} from '$lib/data/prefecture-tiles';
 
 	let { prefectures }: { prefectures: PrefectureCount[] } = $props();
 
 	let byCode = $derived(new Map(prefectures.map((p) => [p.code, p])));
 
-	/** マスの並び。配置データの順にそのまま描く。 */
+	/** 角丸の半径。参考図に近い丸みにしている。 */
+	const RADIUS = 8;
+
+	/** 図の余白。突起と輪郭線が切れないだけの幅を取る。 */
+	const PAD = 10;
+
+	/**
+	 * マスに書く名前。**「都」「府」「県」を落とす。**
+	 *
+	 * 枠の幅は2文字を基準にしている。接尾辞を付けると全県が3文字以上になり、
+	 * 文字が枠に合わせて縮んで読めなくなる。読み上げ用の aria-label には
+	 * 正式名称をそのまま使うので、情報は落ちない。
+	 *
+	 * 北海道は「道」で終わるが3文字で1つの名前なので落とさない。
+	 */
+	function shortName(name: string): string {
+		return name.length > 2 ? name.replace(/[都府県]$/, '') : name;
+	}
+
+	/**
+	 * 描画用のマス。
+	 *
+	 * 配置データの「マス単位」を px に直し、文字の大きさまでここで決める。
+	 * **テンプレート側に計算を置かない** — 47件ぶん式が並ぶと読めなくなる。
+	 */
 	let tiles = $derived(
-		PREFECTURE_TILES.map((t) => ({ ...t, prefecture: byCode.get(t.code) })).filter(
-			(t) => t.prefecture !== undefined
-		)
+		PREFECTURE_TILES.flatMap((t) => {
+			const prefecture = byCode.get(t.code);
+			if (prefecture === undefined) return [];
+
+			const w = (t.width ?? 1) * TILE_UNIT_X - TILE_GAP;
+			const h = (t.height ?? 1) * TILE_UNIT_Y - TILE_GAP;
+			const label = shortName(prefecture.name);
+
+			return [
+				{
+					code: t.code,
+					prefecture,
+					visited: prefecture.postCount > 0,
+					hue: REGION_HUES[prefecture.region] ?? 210,
+					x: t.col * TILE_UNIT_X,
+					y: t.row * TILE_UNIT_Y,
+					w,
+					h,
+					// **枠に収まる大きさにする。** 高さから決めた値と、
+					// 文字数で割った幅の小さいほうを取る。3文字の県が潰れない。
+					label,
+					fontSize: Math.min(h * 0.52, (w / label.length) * 1.05),
+					tail: t.tail === true
+				}
+			];
+		})
 	);
+
+	/** 図の表示範囲。マスの位置から求めるので、配置を変えても追従する。 */
+	let viewBox = $derived.by(() => {
+		if (tiles.length === 0) return '0 0 1 1';
+		const minX = Math.min(...tiles.map((t) => t.x));
+		const minY = Math.min(...tiles.map((t) => t.y));
+		const maxX = Math.max(...tiles.map((t) => t.x + t.w));
+		// 北海道の突起は枠の下へ出るぶんを足す。
+		const maxY = Math.max(...tiles.map((t) => t.y + t.h + (t.tail ? TILE_UNIT_Y * 0.42 : 0)));
+		return `${minX - PAD} ${minY - PAD} ${maxX - minX + PAD * 2} ${maxY - minY + PAD * 2}`;
+	});
 
 	let visited = $derived(prefectures.filter((p) => p.postCount > 0));
 	let rate = $derived(
@@ -46,33 +105,55 @@
 		**マスはリンクにする。** その県の投稿一覧へ行けることが目的であり、
 		キーボードでも順に辿れる必要がある。
 		aria-label に県名と件数を入れ、読み上げだけで内容が分かるようにする。
+
+		地理的に正確な形ではなく角丸の枠に県名を書く。理由は
+		prefecture-tiles.ts の冒頭に書いた。
 	-->
-	<ul
-		class="grid"
-		style="--rows:{TILE_ROWS}; --columns:{TILE_COLUMNS};"
-		aria-label="都道府県ごとの投稿"
-	>
-		{#each tiles as tile (tile.code)}
-			{@const p = tile.prefecture!}
-			{@const isVisited = p.postCount > 0}
-			<li style="grid-row:{tile.row}; grid-column:{tile.column};">
+	<div class="map">
+		<svg {viewBox} role="group" aria-label="都道府県ごとの投稿">
+			{#each tiles as tile (tile.code)}
+				{@const p = tile.prefecture}
 				<a
 					class="tile"
-					class:visited={isVisited}
-					style="--hue:{REGION_HUES[p.region] ?? 210};"
+					class:visited={tile.visited}
+					style="--hue:{tile.hue};"
 					href={resolve('/prefectures/[code]', { code: p.code })}
-					aria-label="{p.name} {p.postCount}件{isVisited ? '（訪問済み）' : '（未訪問）'}"
+					aria-label="{p.name} {p.postCount}件{tile.visited ? '（訪問済み）' : '（未訪問）'}"
 				>
+					{#if tile.tail}
+						<!-- 北海道の左下の突起。形の手がかりとして付ける。 -->
+						<rect
+							class="tail"
+							x={tile.x + tile.w * 0.06}
+							y={tile.y + tile.h - 2}
+							width={tile.w * 0.2}
+							height={TILE_UNIT_Y * 0.42}
+							rx={RADIUS * 0.6}
+						/>
+					{/if}
+					<rect class="box" x={tile.x} y={tile.y} width={tile.w} height={tile.h} rx={RADIUS} />
 					<!--
 						**色の違いだけで訪問済みを示さない。** 訪問済みには
-						県名の頭文字を出し、未訪問には出さない。塗りの濃さ・
-						文字の有無・読み上げのラベルの3つで伝える。
+						右上に印を打つ。塗りの濃さ・印の有無・読み上げのラベルの
+						3つで伝える。
 					-->
-					<span aria-hidden="true" class="mark">{isVisited ? p.name.slice(0, 1) : ''}</span>
+					{#if tile.visited}
+						<circle class="dot" cx={tile.x + tile.w - 7} cy={tile.y + 7} r="2.6" />
+					{/if}
+					<text
+						class="name"
+						x={tile.x + tile.w / 2}
+						y={tile.y + tile.h / 2}
+						text-anchor="middle"
+						dominant-baseline="central"
+						font-size={tile.fontSize.toFixed(1)}
+					>
+						{tile.label}
+					</text>
 				</a>
-			</li>
-		{/each}
-	</ul>
+			{/each}
+		</svg>
+	</div>
 
 	<button type="button" onclick={() => (showTable = !showTable)} aria-expanded={showTable}>
 		{showTable ? '表を閉じる' : '同じ内容を表で見る'}
@@ -124,50 +205,79 @@
 		font-weight: 700;
 	}
 
-	.grid {
-		display: grid;
-		grid-template-rows: repeat(var(--rows), 1fr);
-		grid-template-columns: repeat(var(--columns), 1fr);
-		gap: 2px;
-		list-style: none;
-		/* **狭い画面でも崩れない。** マスの大きさは列数から決まるため、
-		   横に溢れず、正方形の比率だけを保つ。 */
+	.map {
+		/* **狭い画面でも横に溢れない。** viewBox の比率のまま縮む。 */
 		width: 100%;
-		max-width: 26rem;
-		aspect-ratio: var(--columns) / var(--rows);
-		margin: var(--space-4) 0 0;
-		padding: 0;
+		max-width: 34rem;
+		margin-top: var(--space-4);
 	}
 
-	.tile {
-		display: flex;
-		align-items: center;
-		justify-content: center;
+	svg {
+		display: block;
 		width: 100%;
-		height: 100%;
-		/* **未訪問でも地方の色を薄く付ける。**
-		   塗られていない状態でも「どの地方の県か」が見え、
-		   まとまりとして地図が読める。訪問済みとの差は明度で付ける。 */
-		/* 未訪問。地方の色を薄く敷き、輪郭は墨で締める。 */
-		background: hsl(var(--hue) 38% 84%);
-		border: 1px solid var(--color-border);
-		border-radius: 2px;
-		font-size: 0.625rem;
-		font-weight: 700;
-		color: var(--color-text);
-		text-decoration: none;
+		height: auto;
+		overflow: visible;
+	}
+
+	.box,
+	.tail {
+		/* 未訪問。地方の色を薄く敷き、輪郭は墨で締める。
+		   **未訪問でも地方の色を薄く付ける。** 塗られていない状態でも
+		   「どの地方の県か」が見え、まとまりとして地図が読める。 */
+		fill: hsl(var(--hue) 38% 84%);
+		stroke: var(--color-border);
+		stroke-width: 1.4;
+		transition: fill 0.15s;
 	}
 
 	/* **白文字とのコントラストを確保するため明度を下げている。**
 	   色相によっては 55% だと 4.5:1 を下回る。 */
-	.tile.visited {
-		background: hsl(var(--hue) 52% 34%);
-		border-color: var(--color-border);
-		color: #fff;
+	.visited .box,
+	.visited .tail {
+		fill: hsl(var(--hue) 52% 30%);
 	}
 
-	.mark {
-		line-height: 1;
+	.name {
+		font-weight: 700;
+		fill: var(--color-text);
+		/* 文字の上でも押せる。枠と別に当たり判定を作らない。 */
+		pointer-events: none;
+	}
+
+	.visited .name {
+		fill: #fff;
+	}
+
+	.dot {
+		fill: #fff;
+		pointer-events: none;
+	}
+
+	.tile:hover .box,
+	.tile:hover .tail {
+		fill: hsl(var(--hue) 52% 44%);
+	}
+
+	.tile:hover .name {
+		fill: #fff;
+	}
+
+	/* **フォーカスが見えること。** SVG では outline の描かれ方が
+	   ブラウザで揃わないため、輪郭線そのものを太くする。 */
+	.tile:focus {
+		outline: none;
+	}
+
+	.tile:focus-visible .box {
+		stroke: var(--color-text);
+		stroke-width: 3.5;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.box,
+		.tail {
+			transition: none;
+		}
 	}
 
 	button {

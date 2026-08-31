@@ -12,8 +12,37 @@ test.describe('都道府県制覇マップ', () => {
 		await expect(page.getByText('0 / 47 県（0%）')).toBeVisible();
 
 		// マスはリンクであり、キーボードでも辿れる。
-		const tiles = page.getByRole('list', { name: '都道府県ごとの投稿' }).getByRole('link');
+		// **リストではなく図として出す。** 角丸のマスを SVG で描くようになったため、
+		// 入れ物は role="group"。マス自体は今までどおりリンクである。
+		const tiles = page.getByRole('group', { name: '都道府県ごとの投稿' }).getByRole('link');
 		await expect(tiles).toHaveCount(47);
+	});
+
+	/*
+	マスに県名が出ること。
+
+	**以前は訪問済みの頭文字1文字だけだった。** どの県か分からず、
+	色の濃さで訪問済みを見分けるしかなかった。
+
+	表示は「都・府・県」を落とす。枠の幅が2文字を基準のため、
+	接尾辞を付けると全県が3文字以上になって文字が縮む。
+	読み上げ用のラベルには正式名称を残すので、情報は落ちない。
+	北海道は「道」で終わるが3文字で1つの名前なので落とさない。
+	*/
+	test('マスに県名が出る（都・府・県は落とす）', async ({ page }) => {
+		const me = await signup(page, { displayName: '県名を見る人' });
+
+		await page.goto(`/users/${me.handle}`);
+		const map = page.getByRole('group', { name: '都道府県ごとの投稿' });
+
+		await expect(map.getByText('東京', { exact: true })).toBeVisible();
+		await expect(map.getByText('京都', { exact: true })).toBeVisible();
+		await expect(map.getByText('神奈川', { exact: true })).toBeVisible();
+		await expect(map.getByText('北海道', { exact: true })).toBeVisible();
+
+		// 未訪問でも名前は出る。**訪問済みかどうかは名前の有無で示さない。**
+		await expect(map.getByRole('link', { name: '沖縄県 0件（未訪問）' })).toBeVisible();
+		await expect(map.getByText('沖縄', { exact: true })).toBeVisible();
 	});
 
 	// **各マスは県名と件数を読み上げられる。** 色だけでは何も伝わらない。
