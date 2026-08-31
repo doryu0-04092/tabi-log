@@ -40,9 +40,12 @@ infra/*.tfvars
 # **アプライ済みの環境で取った plan には、現在の state が埋め込まれる。**
 # 生成済みの DB パスワード・JWT の署名鍵・CDN の秘密鍵がそこに入る。
 # （state が空のときに取った plan には入らない。値が未確定のため）
-terraform.tfplan
-infra/tfplan
-infra/*.tfplan
+# **接尾辞ではなく接頭辞で捉える。** tfplan-destroy のように
+# 名前を足したものが漏れる。実際に一度入れてしまった。
+tfplan
+tfplan*
+infra/tfplan*
+*.tfplan
 !infra/*.tfvars.example
 crash.log
 
