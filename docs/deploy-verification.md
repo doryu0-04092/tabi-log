@@ -111,13 +111,30 @@ terraform が作るのは器だけである。**ECR は空、S3 も空、スキ�
 bash docker/bootstrap-deploy.sh
 ```
 
+**PowerShell から実行するときは Git Bash を明示すること。**
+PowerShell の `bash` は WSL の bash に解決される。
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" docker/bootstrap-deploy.sh
+```
+
+**Docker Desktop を起動してから実行すること。** 起動していないと
+最初の `docker build` で止まる（スクリプトが先に見て止める）。
+
 | 順 | 何をするか | 飛ばすとどうなるか |
 |---|---|---|
-| 1 | バックエンドのイメージを `initial` で push | ECS が存在しないタグを取りに行き続ける |
-| 2 | マイグレーションを流す（`run-migrate.sh`） | **スキーマが無く readyz が通らず、置換が延々と走る** |
-| 3 | ECS を強制再デプロイ | push しただけでは切り替わらない。待つと数分かかる |
-| 4 | フロントエンドを S3 へ | — |
-| 5 | 公開経路で livez / readyz / トップを叩く | **ECS が安定しただけでは経路が通った証拠にならない** |
+| 1 | 画像処理の zip を build | **terraform はビルドしない。** 古い zip がそのまま Lambda に載る |
+| 2 | バックエンドのイメージを `initial` で push | ECS が存在しないタグを取りに行き続ける |
+| 3 | マイグレーションを流す（`run-migrate.sh`） | **スキーマが無く readyz が通らず、置換が延々と走る** |
+| 4 | ECS を強制再デプロイ | push しただけでは切り替わらない。待つと数分かかる |
+| 5 | フロントエンドを S3 へ | — |
+| 6 | 公開経路で livez / readyz / トップを叩く | **ECS が安定しただけでは経路が通った証拠にならない** |
+
+> **zip が変わったら `terraform apply` が要る。** スクリプトは知らせるだけで、
+> apply はしない。2026-08-31 にここを踏んだ — `JWT_SECRET` を環境変数から
+> 外したのに、それを不要にするコードが Lambda に届いておらず、画像処理が
+> 起動時に落ち続けた。**apply は成功し、plan にも差分は出ない。**
+> 気づけるのは画像を1枚上げてみたときだけである（1B-2）。
 
 **順序を変えないこと。** フロントを先に置くと、まだ動かない API を叩く画面が
 公開される。
