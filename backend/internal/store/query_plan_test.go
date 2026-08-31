@@ -106,6 +106,46 @@ func explainExtra(t *testing.T, db *sql.DB, query string, args ...any) string {
 	return strings.Join(extras, " | ")
 }
 
+// explainColumn は EXPLAIN の指定した列をすべて連結して返す。
+//
+// **Extra だけでは足りない。** 並べ替えが出ていなくても、
+// 意図した索引ではなく PRIMARY を範囲走査していることがある
+// （コメントの一覧が実際にそうだった）。どの索引が選ばれたかを見る。
+func explainColumn(t *testing.T, db *sql.DB, column, query string, args ...any) string {
+	t.Helper()
+
+	rows, err := db.QueryContext(t.Context(), "EXPLAIN "+query, args...)
+	if err != nil {
+		t.Fatalf("EXPLAIN を実行できない: %v\n%s", err, query)
+	}
+	defer func() { _ = rows.Close() }()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		t.Fatalf("EXPLAIN の列を取得できない: %v", err)
+	}
+
+	var values []string
+	for rows.Next() {
+		cells := make([]any, len(columns))
+		for i := range cells {
+			cells[i] = new(sql.NullString)
+		}
+		if err := rows.Scan(cells...); err != nil {
+			t.Fatalf("EXPLAIN の行を読めない: %v", err)
+		}
+		for i, name := range columns {
+			if name == column {
+				values = append(values, cells[i].(*sql.NullString).String)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("EXPLAIN の読み出しに失敗した: %v", err)
+	}
+	return strings.Join(values, " | ")
+}
+
 // 0〜9 を並べるための副問い合わせ。数表を作らずに件数を掛け合わせる。
 const digits = `(SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4
   UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9)`
@@ -224,6 +264,72 @@ func TestカーソルでたどるSELECTが並べ替えを起こさない(t *test
 					tc.query, extra, query)
 			}
 		})
+	}
+}
+
+/*
+コメントの一覧。**索引 ix_comments_post は (post_id, created_at, id) である。**
+
+post_id は等価で絞れるが、その中の並びは created_at → id になる。
+ORDER BY c.id を索引だけで解決できるのは、created_at の順と id の順が
+一致すると分かっている場合だけであり、**データベースはそれを知らない。**
+
+監査（2026-08-31、M10）で疑いとして挙げ、根拠を出さずに残していた。
+**EXPLAIN で事実にする。**
+
+件数と**分布**を実態に寄せる必要がある。数十件では全表走査のほうが安いと
+判断され、結果が索引の良し悪しを表さない。1つの投稿に偏らせるのも同じで、
+PRIMARY を辿るだけで LIMIT が埋まってしまう。
+400 件の投稿に 25 件ずつ、id を入り混じらせて入れる。
+*/
+func Testコメントの一覧が並べ替えを起こさない(t *testing.T) {
+	db := newDB(t)
+	userID := seedForPlan(t, db)
+	ctx := t.Context()
+
+	var postID uint64
+	if err := db.QueryRowContext(ctx, "SELECT id FROM posts ORDER BY id LIMIT 1").Scan(&postID); err != nil {
+		t.Fatalf("対象の投稿を取れない: %v", err)
+	}
+
+	// **分布を実態に寄せる。** 1つの投稿に偏らせると、その投稿の
+	// コメントが全体の何割も占めることになり、PRIMARY を id 順に辿っても
+	// LIMIT 21 がすぐ埋まる。それでは索引の要否を判定できない
+	// （実際に 1万件中 2000 件を偏らせて測り、判定にならなかった）。
+	//
+	// 実際には「1つの投稿のコメントは全体のごく一部」である。
+	// 400 件の投稿に 25 件ずつ、id が入り混じるように入れる。
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO comments (post_id, user_id, body)
+		SELECT t.post_id, ?, CONCAT('計画確認 ', t.n)
+		FROM (
+		  SELECT p.id AS post_id, s.n AS n
+		  FROM (SELECT id FROM posts ORDER BY id LIMIT 400) p
+		  JOIN (SELECT a.n + b.n * 10 AS n FROM `+digits+` a, `+digits+` b WHERE a.n + b.n * 10 < 25) s
+		  ORDER BY s.n, p.id
+		) t
+	`, userID); err != nil {
+		t.Fatalf("コメントをまとめて入れられない: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, "ANALYZE TABLE comments"); err != nil {
+		t.Fatalf("統計を更新できない: %v", err)
+	}
+
+	query := readNamedQuery(t, "comments.sql", "ListCommentsAfter")
+
+	extra := explainExtra(t, db, query, postID, uint64(0), 21)
+	if strings.Contains(extra, "Using filesort") {
+		t.Errorf("コメントの一覧で並べ替えが発生している\nExtra: %s\n%s", extra, query)
+	}
+
+	// **並べ替えが出ないことだけでは足りない。**
+	// (post_id, created_at, id) だった頃は、並べ替えは出ないが
+	// PRIMARY を id > ? で範囲走査し、post_id を Using where で捨てていた
+	// （実測 rows=4957 / filtered=20.17%）。他の投稿のコメントまで辿るため、
+	// 総量に比例して悪化する。**選ばれた索引まで見る。**
+	key := explainColumn(t, db, "key", query, postID, uint64(0), 21)
+	if !strings.Contains(key, "ix_comments_post") {
+		t.Errorf("コメントの索引が使われていない。選ばれた索引: %s\n%s", key, query)
 	}
 }
 

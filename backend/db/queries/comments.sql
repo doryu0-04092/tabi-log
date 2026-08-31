@@ -21,7 +21,12 @@ WHERE c.id = ?;
 --
 -- カーソルは id のみでよい。created_at はデータベースが挿入時に付けており
 -- AUTO_INCREMENT と同じ順序になるためである。
--- 索引 ix_comments_post (post_id, created_at, id) が効く。
+-- 索引 ix_comments_post (post_id, id) が効く。
+--
+-- **2列目が created_at だった頃は効いていなかった。** post_id で絞った
+-- あとの並びが created_at → id になり、id の範囲を索引で辿れないため、
+-- MySQL は PRIMARY を id > ? で範囲走査して post_id を捨てる計画を選ぶ。
+-- 並べ替えは出ないので Extra だけを見ていると気づけない（000009 で置換）。
 -- name: ListCommentsAfter :many
 SELECT c.id, c.post_id, c.user_id, c.body, c.created_at,
        u.handle, u.display_name, u.bio
