@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestHashPassword_正しいパスワードだけを受け入れる(t *testing.T) {
@@ -140,5 +142,41 @@ func TestEqualSecret(t *testing.T) {
 	}
 	if EqualSecret("abc", "abcd") {
 		t.Error("長さの違う値が一致と判定された")
+	}
+}
+
+/*
+コストを変えても、以前のコストで作られたハッシュは検証できる。
+
+**bcrypt はコストをハッシュ自体に記録している。** そのため、設定を
+下げても上げても、既に保存されているパスワードはそのまま通る。
+
+これが成り立たないと、**コストを変えた瞬間に全利用者がログイン
+できなくなる。** 気づくのは利用者からの連絡である。
+
+`docs/audit-2026-08-31.md` の性能確認で cost 12 → 10 に変えた。
+*/
+func Test以前のコストで作られたハッシュも検証できる(t *testing.T) {
+	const password = "VerifyPass!2026"
+
+	// 以前の設定（12）で作られたハッシュを模す。
+	old, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		t.Fatalf("ハッシュを作れない: %v", err)
+	}
+
+	if !VerifyPassword(string(old), password) {
+		t.Error("cost=12 で作られたハッシュが検証できない。設定を変えると全利用者がログインできなくなる")
+	}
+	if VerifyPassword(string(old), "ちがうパスワード") {
+		t.Error("誤ったパスワードが通った")
+	}
+}
+
+// **既定より下げない。** bcrypt.DefaultCost は OWASP の下限も満たす。
+// 下げると総当たりへの耐性が落ちる。
+func Testコストはライブラリの既定を下回らない(t *testing.T) {
+	if bcryptCost < bcrypt.DefaultCost {
+		t.Errorf("コストが %d。既定（%d）を下回っている", bcryptCost, bcrypt.DefaultCost)
 	}
 }
