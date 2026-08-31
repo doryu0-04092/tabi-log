@@ -2,10 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 
 	"github.com/doryu0-04092/tabi-log/backend/internal/api/gen"
+	"github.com/doryu0-04092/tabi-log/backend/internal/store"
 )
 
 // AvatarRepository はアバターの設定と取得を表す。
@@ -136,10 +138,20 @@ func (h *accountHandler) SetAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.repo.SetAvatar(r.Context(), userID, uint64(req.MediaId)); err != nil {
+	switch err := h.repo.SetAvatar(r.Context(), userID, uint64(req.MediaId)); {
+	case errors.Is(err, store.ErrAvatarNotUsable):
 		// **理由は区別しない。** 他人の画像 / 未処理 / 使用済み を分けて返すと、
 		// ID を総当たりして他人の画像の存在を調べられる。
+		//
+		// **区別しないのは「使えない理由」どうしの話である。**
+		// サーバー側の失敗まで 400 にすると、障害中に「この画像は
+		// 使えません」と案内することになり、画像を替えても直らない。
 		writeError(w, r, http.StatusBadRequest, "validation_error", "この画像はアバターに使えません")
+		return
+	case err != nil:
+		// **記録を残す。** ここで握りつぶすと、障害が構造化ログにも
+		// エラー率にも出ず、監視から抜け落ちる。
+		h.internalError(w, r, "アバターの設定に失敗した", err)
 		return
 	}
 

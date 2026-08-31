@@ -123,7 +123,7 @@ JIS コードは総務省が定めた不変の値であり、この用途では�
 | `body` | VARCHAR(1000) | NOT NULL | 本文 |
 | `prefecture_code` | CHAR(2) | NOT NULL, FK → `prefectures.code` | **必須**。自由入力は許さない |
 | `spot_name` | VARCHAR(100) | NULL | 「道の駅○○」など。自由記述 |
-| `visited_on` | DATE | NOT NULL | **訪問日。投稿日とは別の軸** |
+| `visited_on` | DATE | NULL | **訪問日。投稿日とは別の軸。** 000006 で NOT NULL から変更した — 覚えていない・特定の日に紐づかない投稿があるため。**省略した投稿は旅行履歴（訪問日順）に出ない** |
 | `like_count` | INT UNSIGNED | NOT NULL, DEFAULT 0 | カウンタ列 |
 | `comment_count` | INT UNSIGNED | NOT NULL, DEFAULT 0 | カウンタ列 |
 | `created_at` | DATETIME(6) | NOT NULL | 投稿日 |
@@ -135,9 +135,9 @@ JIS コードは総務省が定めた不変の値であり、この用途では�
 |---|---|
 | `INDEX(created_at DESC, id DESC)` | 新着フィードのカーソルページネーション |
 | `INDEX(user_id, id DESC)` | プロフィールの投稿一覧（カーソルページネーション。000003 で追加） |
-| `INDEX(user_id, created_at DESC)` | 利用者で絞った投稿日順の走査 |
+
 | `INDEX(user_id, visited_on DESC, id DESC)` | プロフィールの旅行履歴（訪問日順。000005 で `id DESC` を足した） |
-| `INDEX(prefecture_code, created_at DESC)` | 都道府県での絞り込み |
+| `INDEX(prefecture_code, id DESC)` | 都道府県での絞り込み（000007 で `created_at DESC` から置き換えた） |
 | `INDEX(user_id, prefecture_code)` | **都道府県制覇マップ**（訪問済みの県を数える） |
 | `INDEX(like_count DESC, id DESC)` | 人気順 |
 | `FULLTEXT(body, spot_name) WITH PARSER ngram` | キーワード全文検索 |

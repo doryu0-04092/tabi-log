@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -251,7 +252,10 @@ func TestLogin_失敗の理由を区別しない(t *testing.T) {
 }
 
 func TestLogin_試行回数の上限を超えたら429を返す(t *testing.T) {
-	router := newRouter(t, testDeps{auth: loginRepo(t)})
+	// **上限を明示する。** 既定値そのものを確かめる試験ではなく、
+	// 「上限に達したら 429 になる」ことを見る試験である。
+	// 既定に依存させると、既定を変えたときにここが落ちる（実際に落ちた）。
+	router := newRouter(t, testDeps{auth: loginRepo(t), loginAttemptLimit: 10})
 
 	// 上限は 10 回。11 回目で 429 になる。
 	var last *httptest.ResponseRecorder
@@ -538,5 +542,98 @@ func Test付け直せなくてもログインは成功する(t *testing.T) {
 		`{"email":"a@example.com","password":"correct horse battery"}`))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ログインが %d で返った。付け直しの失敗で認証を落としてはいけない", rec.Code)
+	}
+}
+
+/*
+ログインに成功したら、数えたときと同じ鍵で回数を消す。
+
+**生の入力で消すと合わない。** User@example.com で入力した利用者は
+login:user@example.com に数えられているのに login:User@example.com を
+消しに行き、**成功しても回数が減らない。**
+
+上限は5分あたり10回なので、大文字混じりで入力する利用者は
+打ち間違いと成功を合わせて10回で入れなくなる。
+
+**大文字と小文字で2回ずつ試す形にしてある。** 発信元（IP）側の上限も
+同時に減るため、単純に回数を数えると IP 側が先に尽きて区別できない。
+「小文字で入力したときは減るのに、大文字だと減らない」という
+**入力の違いによる差**を見る。
+*/
+func Test大文字混じりでログインしても回数が減る(t *testing.T) {
+	// 同じ条件で、入力の大文字小文字だけを変えて比べる。
+	try := func(t *testing.T, email string) int {
+		t.Helper()
+		h := newRouter(t, testDeps{auth: loginRepo(t), tokens: testTokens(t), loginAttemptLimit: 6})
+		// **発信元を毎回変える。** 変えないと IP 側の上限が先に尽き、
+		// アカウント側が消えたかどうかを区別できない。
+		n := 0
+		login := func(pw string) *httptest.ResponseRecorder {
+			n++
+			r := req(http.MethodPost, "/api/auth/login",
+				`{"email":"`+email+`","password":"`+pw+`"}`)
+			r.RemoteAddr = fmt.Sprintf("198.51.100.%d:12345", n)
+			return doJSON(h, r)
+		}
+		login("ちがう")
+		login("ちがう")
+		if rec := login("correct-password"); rec.Code != http.StatusOK {
+			t.Fatalf("ログインが %d で返った: %s", rec.Code, rec.Body.String())
+		}
+		// 成功後、429 になるまでの回数を数える。**消えていれば多く試せる。**
+		tried := 0
+		for i := 0; i < 10; i++ {
+			if login("ちがう").Code == http.StatusTooManyRequests {
+				break
+			}
+			tried++
+		}
+		return tried
+	}
+
+	lower := try(t, "a@example.com")
+	upper := try(t, "A@example.com")
+
+	if upper != lower {
+		t.Errorf("大文字混じりだと %d回しか試せない（小文字は %d回）。"+
+			"成功時に消す鍵が、数えた鍵と揃っていない", upper, lower)
+	}
+}
+
+/*
+アバターの表示用 URL は、認証の応答にも入れる。
+
+**画面の session.user はこの経路からしか埋まらない。**
+入っていないと、設定済みのアバターがプロフィール編集画面に出ず、
+**「外す」ボタンも描画されないため、一度設定すると画面から外せなくなる。**
+
+保存操作を1回挟むと直る（更新の応答だけは埋めている）ため、
+気づきにくい形になっていた。
+*/
+func Test認証の応答にもアバターのURLが入る(t *testing.T) {
+	tokens := testTokens(t)
+	repo := loginRepo(t)
+	// アバターを設定済みの利用者にする。
+	account := &stubAccountRepo{avatarKeys: map[uint64]string{7: "originals/avatar.jpg"}}
+	h := newRouter(t, testDeps{auth: repo, account: account, tokens: tokens})
+
+	rec := doJSON(h, req(http.MethodPost, "/api/auth/login",
+		`{"email":"a@example.com","password":"correct-password"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ログインが %d で返った: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Data struct {
+			User struct {
+				AvatarUrl *string `json:"avatarUrl"`
+			} `json:"user"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("JSON として読めなかった: %v", err)
+	}
+	if body.Data.User.AvatarUrl == nil || *body.Data.User.AvatarUrl == "" {
+		t.Error("ログインの応答に avatarUrl が入っていない。編集画面でアバターを外せなくなる")
 	}
 }

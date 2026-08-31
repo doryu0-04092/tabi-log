@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -487,5 +488,46 @@ func TestAvatarEndpointsRequireAuthentication(t *testing.T) {
 	}
 	if len(repo.setAvatarIDs) != 0 || len(repo.clearedFor) != 0 {
 		t.Fatal("認証なしのリクエストが repo まで到達している")
+	}
+}
+
+/*
+アバターの設定で、サーバー側の失敗を 400 に潰さない。
+
+**区別しないのは「使えない理由」どうしの話である。** 他人の画像・未処理・
+使用済みを分けて返すと ID の総当たりで存在を調べられるため、そこは
+まとめて 400 でよい。
+
+**サーバー側の失敗まで 400 にすると、障害中に「この画像は使えません」と
+案内することになり、画像を替えても直らない。** 記録も残らないため、
+エラー率にも構造化ログにも現れず、監視から抜け落ちる。
+*/
+func Testアバターの設定でサーバー側の失敗は500にする(t *testing.T) {
+	tokens := testTokens(t)
+	account := &stubAccountRepo{avatarErr: errors.New("DB に届かない")}
+	h := newRouter(t, testDeps{account: account, tokens: tokens})
+	token := mustIssue(t, tokens, 7)
+
+	rec := doJSON(h, withBearer(
+		req(http.MethodPut, "/api/users/me/avatar", `{"mediaId":1}`), token))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("%d が返った。500 を期待した（400 だと障害中に「画像が使えない」と案内する）: %s",
+			rec.Code, rec.Body.String())
+	}
+}
+
+// 使えない画像は今までどおり 400 のまま。**理由は区別しない。**
+func Test使えない画像は400のまま(t *testing.T) {
+	tokens := testTokens(t)
+	account := &stubAccountRepo{avatarErr: store.ErrAvatarNotUsable}
+	h := newRouter(t, testDeps{account: account, tokens: tokens})
+	token := mustIssue(t, tokens, 7)
+
+	rec := doJSON(h, withBearer(
+		req(http.MethodPut, "/api/users/me/avatar", `{"mediaId":1}`), token))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("%d が返った。400 を期待した", rec.Code)
 	}
 }

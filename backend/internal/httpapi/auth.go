@@ -101,7 +101,14 @@ type AuthOptions struct {
 }
 
 type authHandler struct {
-	repo    AuthRepository
+	repo AuthRepository
+
+	// avatars はアバターの表示用 URL を埋める係。
+	//
+	// **ここを通さないと avatarUrl が空のまま返る。** 画面の
+	// session.user はこの経路からしか埋まらないため、
+	// 設定済みのアバターが編集画面に出ず、外すこともできなくなる。
+	avatars *avatarResolver
 	issuer  auth.TokenIssuer
 	opts    AuthOptions
 	logger  *slog.Logger
@@ -276,7 +283,12 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 正しく使えている利用者が上限に近づいたままにならないよう、成功時に消す。
-	h.byEmail.Reset("login:" + email)
+	//
+	// **数えたときと同じ鍵で消す。** 生の入力で消すと、
+	// User@example.com で入力した利用者は login:user@example.com に
+	// 数えられているのに login:User@example.com を消しに行き、
+	// **成功しても回数が減らない**（10回で入れなくなる）。
+	h.byEmail.Reset("login:" + strings.ToLower(email))
 
 	// **古いコストのハッシュをここで付け直す。**
 	// 平文を持っているのはこの瞬間だけである。
@@ -398,7 +410,9 @@ func (h *authHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, r, http.StatusOK, toAPIUser(user))
+	out := toAPIUser(user)
+	h.avatars.fillOne(r.Context(), &out)
+	writeJSON(w, r, http.StatusOK, out)
 }
 
 // ---------------------------------------------------------------------------
@@ -434,7 +448,9 @@ func (h *authHandler) writeAuthResponse(w http.ResponseWriter, r *http.Request, 
 	var body gen.AuthResponse
 	body.Data.AccessToken = accessToken
 	body.Data.ExpiresIn = int(expiresAt.Sub(now).Seconds())
-	body.Data.User = toAPIUser(user)
+	out := toAPIUser(user)
+	h.avatars.fillOne(r.Context(), &out)
+	body.Data.User = out
 
 	writeJSON(w, r, status, body.Data)
 }
