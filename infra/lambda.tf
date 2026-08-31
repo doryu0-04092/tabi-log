@@ -54,13 +54,23 @@ resource "aws_lambda_function" "imageworker" {
   memory_size = 1024
   timeout     = 60
 
-  # **同時実行数に上限を置く。** 置かないとアカウントの上限まで増え、
-  # そのぶん RDS への接続も増える。署名付き URL の発行には上限を
-  # 設けたが、それは1利用者あたりであり、全体の歯止めにはならない。
+  # **同時実行数は予約しない。**
   #
-  # 予約した数はアカウントの共有枠から差し引かれる。
-  # 他に Lambda が無いため影響しない。
-  reserved_concurrent_executions = var.imageworker_concurrency
+  # 予約したいのは RDS への接続を抑えるためだが、**このアカウントの
+  # 同時実行の上限がそもそも 10 である**（新しいアカウントの初期値）。
+  # AWS は「予約していない枠を 10 未満にできない」という制約を持つため、
+  # 上限 10 の環境では1つも予約できない。
+  #
+  #     InvalidParameterValueException: Specified ReservedConcurrentExecutions
+  #     for function decreases account's UnreservedConcurrentExecution
+  #     below its minimum value of [10]
+  #
+  # **予約しなくても歯止めは効いている。** アカウントの上限が
+  # そのまま同時実行の上限になり、接続数の検算にもその値を使う
+  # （rds.tf の imageworker_max_concurrency）。
+  #
+  # **上限が引き上げられたら、ここに予約を戻すこと。** 1000 になった
+  # 時点で歯止めが消え、接続の枯渇が現実的になる。
 
   # **VPC の中に置く。** データベースを更新する必要があるためである。
   # その代償として、S3 へはゲートウェイエンドポイント経由で出る

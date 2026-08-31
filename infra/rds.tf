@@ -121,9 +121,13 @@ resource "aws_db_instance" "main" {
 # 計算で止めるのではなく、超える構成を書いたときに気づけるようにしておく。
 # **Lambda も同じ RDS に繋ぐ。** ECS だけを数えると、
 # 画像処理が同時に走ったぶんが計算から漏れる。
+#
+# Lambda 側は予約で抑えていない（抑えられない）。**アカウントの
+# 同時実行の上限がそのまま最大値になる。** 上限が上がったときに
+# ここが古いままだと、検算が実態より小さい数字で通ってしまう。
 locals {
   ecs_connections    = var.desired_count * var.db_max_connections_headroom
-  lambda_connections = var.imageworker_concurrency * var.imageworker_db_connections
+  lambda_connections = var.imageworker_max_concurrency * var.imageworker_db_connections
 
   planned_connections = local.ecs_connections + local.lambda_connections
 }
@@ -134,11 +138,11 @@ resource "terraform_data" "connection_budget" {
     precondition {
       condition = local.planned_connections <= var.db_estimated_max_connections
       error_message = format(
-        "接続数が上限を超える見込みです: タスク %d × プール %d = %d、Lambda %d × プール %d = %d、合計 %d > 約%d。タスク数か Lambda の同時実行数を減らすか、インスタンスクラスを上げて db_estimated_max_connections も上げてください。",
+        "接続数が上限を超える見込みです: タスク %d × プール %d = %d、Lambda %d（アカウントの同時実行上限）× プール %d = %d、合計 %d > 約%d。タスク数か Lambda のプールを減らすか、インスタンスクラスを上げて db_estimated_max_connections も上げてください。",
         var.desired_count,
         var.db_max_connections_headroom,
         local.ecs_connections,
-        var.imageworker_concurrency,
+        var.imageworker_max_concurrency,
         var.imageworker_db_connections,
         local.lambda_connections,
         local.planned_connections,
