@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { changePassword, deleteAccount } from '$lib/api/users';
 	import { session } from '$lib/auth/session.svelte';
+	import BackLink from '$lib/components/BackLink.svelte';
 
 	// パスワードの変更。
 	let currentPassword = $state('');
@@ -150,6 +151,8 @@
 			<button type="button" onclick={() => (confirming = true)}>退会の手続きへ進む</button>
 		{/if}
 	</section>
+
+	<BackLink href={resolve('/settings/profile')} label="プロフィールの編集" />
 {/if}
 
 <style>

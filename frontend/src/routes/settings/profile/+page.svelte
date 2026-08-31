@@ -4,6 +4,7 @@
 	import { clearAvatar, setAvatar, updateProfile } from '$lib/api/users';
 	import { session, setSessionUser } from '$lib/auth/session.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
+	import BackLink from '$lib/components/BackLink.svelte';
 
 	const MAX_DISPLAY_NAME = 50;
 	const MAX_BIO = 300;
@@ -212,6 +213,11 @@
 	<p class="link">
 		<a href={resolve('/settings/account')}>パスワードの変更・退会はこちら</a>
 	</p>
+
+	<BackLink
+		href={resolve('/users/[handle]', { handle: session.user?.handle ?? '' })}
+		label="プロフィール"
+	/>
 {/if}
 
 <style>

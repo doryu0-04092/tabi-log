@@ -46,10 +46,17 @@ export default defineConfig(({ mode }) => ({
 		proxy: { '/api': { target: 'http://localhost:8080', changeOrigin: false } }
 	},
 
-	// **テストではブラウザ向けの実装を読ませる。**
-	// これが無いと Svelte がサーバー用の実装を返し、
-	// コンポーネントを組み立てられない（mount が使えない）。
-	resolve: { conditions: mode === 'test' ? ['browser'] : [] },
+	// **テストのときだけ、ブラウザ向けの実装を明示する。**
+	//
+	// jsdom 上では Vite が browser 条件を付けないため、Svelte が
+	// サーバー用の実装（index-server.js）を返し、mount が使えない。
+	//
+	// **テスト以外では resolve に触らない。** conditions に [] を渡すと
+	// Vite の既定（browser を含む）を置き換えてしまい、**アプリ全体で
+	// onMount が no-op になる。** 実際にそうなっており、
+	// afterNavigate が内部で onMount を使うため「前の画面へ戻る」が
+	// 一度も出ないという形で表に出た（2026-09-01）。
+	...(mode === 'test' ? { resolve: { conditions: ['browser'] } } : {}),
 
 	test: {
 		environment: 'jsdom',

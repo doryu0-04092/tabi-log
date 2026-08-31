@@ -4,6 +4,7 @@
 	import { ApiError } from '$lib/api/client';
 	import type { UserSummary } from '$lib/api/users';
 	import Avatar from '$lib/components/Avatar.svelte';
+	import BackLink from '$lib/components/BackLink.svelte';
 	import FollowButton from '$lib/components/FollowButton.svelte';
 
 	let {
@@ -115,6 +116,8 @@
 		label="さらに読み込む"
 	/>
 {/if}
+
+<BackLink href={resolve('/users/[handle]', { handle })} label="プロフィール" />
 
 <style>
 	nav {
