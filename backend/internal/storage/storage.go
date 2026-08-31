@@ -19,6 +19,28 @@ import (
 )
 
 // Storage は画像オブジェクトの保存先を表す。
+// オブジェクトの状態を表すタグ。**ライフサイクルの判断材料になる。**
+//
+// S3 のライフサイクルは「タグが無いこと」を条件にできない。そのため
+// **確定していない側にタグを付ける**形にしてある。付ける役はクライアントで、
+// presign の署名にタグを焼き込んで S3 に強制させる。
+//
+// **Lambda に付けさせてはいけない。** Lambda が失敗した原本にタグが付かず、
+// 永久に消えなくなる。掃除したいのはまさにその孤児である。
+const (
+	StateTagKey = "state"
+
+	// StateTagPending は「まだ投稿に使われていない」ことを表す。
+	// ライフサイクルはこのタグが付いたものだけを期限で消す。
+	StateTagPending = "pending"
+
+	// StateTagKept は「投稿に使われた」ことを表す。**消さない。**
+	// 原本を残すのは、別解像度を後から作れるようにするためである
+	// (docs/er-diagram.md)。変換物からの再エンコードは非可逆で、
+	// 一度失うと取り戻せない。
+	StateTagKept = "kept"
+)
+
 type Storage interface {
 	// PresignPut はブラウザから直接アップロードするための URL を返す。
 	//
@@ -36,6 +58,14 @@ type Storage interface {
 	// **名前を PresignGet から変えたのは、「URL 自体が期限切れになる」と
 	// 読めてしまうためである。** 固定 URL でなければキャッシュは効かない。
 	DisplayURL(ctx context.Context, key string, ttl time.Duration) (string, error)
+
+	// MarkKept は「投稿に使われた」印を付け、期限削除の対象から外す。
+	//
+	// **投稿が確定した時点で呼ぶ。** 呼ばれなかったオブジェクトは
+	// pending のまま残り、ライフサイクルが期限で消す。
+	//
+	// 存在しないキーを渡してもエラーにしない（冪等）。
+	MarkKept(ctx context.Context, keys ...string) error
 
 	// Delete はオブジェクトを消す。存在しない場合もエラーにしない（冪等）。
 	//

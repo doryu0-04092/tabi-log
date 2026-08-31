@@ -30,14 +30,23 @@ awslocal s3api put-bucket-cors --bucket "$BUCKET" --cors-configuration '{
 }'
 
 # 確定しなかったアップロードを期限で削除する。
-# **originals/ だけを対象にする。** 変換物は投稿と一緒に消すため、
-# ここで消すと表示できない投稿が生まれる。
-echo "[init] ライフサイクルルールを設定（originals/ の期限削除）"
+#
+# **接頭辞だけでなくタグでも絞る。** originals/ を無条件に消すと、
+# 投稿に使われた原本まで消えて別解像度を後から作れなくなる。
+# 確定していないものに state=pending が付いており、投稿が確定すると
+# アプリが kept に変えて対象から外す。
+#
+# **infra/s3.tf と同じ条件にしておくこと。** 食い違うと
+# ローカルで再現しない不具合が AWS でだけ出る。
+echo "[init] ライフサイクルルールを設定（originals/ かつ state=pending の期限削除）"
 awslocal s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-configuration '{
   "Rules": [{
     "ID": "expire-unconfirmed-originals",
     "Status": "Enabled",
-    "Filter": { "Prefix": "originals/" },
+    "Filter": { "And": {
+      "Prefix": "originals/",
+      "Tags": [{ "Key": "state", "Value": "pending" }]
+    } },
     "Expiration": { "Days": 1 }
   }]
 }'

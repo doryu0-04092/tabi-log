@@ -99,6 +99,15 @@ func (s *S3Storage) PresignPut(ctx context.Context, key, contentType string, con
 		// S3 側で拒否させる。クライアントの善意に頼らない。
 		ContentType:   aws.String(contentType),
 		ContentLength: aws.Int64(contentLength),
+
+		// **タグも署名に含める。** クライアントは x-amz-tagging ヘッダーを
+		// 付けて PUT する必要があり、付け忘れると S3 が署名不一致で弾く。
+		// 静かに壊れず、はっきり失敗する形にしてある。
+		//
+		// 付ける役をクライアントにしているのは、**ここが唯一「必ず通る」点**
+		// だからである。Lambda に付けさせると、Lambda が失敗した原本に
+		// タグが付かず、期限削除の対象から外れてしまう。
+		Tagging: aws.String(StateTagKey + "=" + StateTagPending),
 	}, s3.WithPresignExpires(ttl))
 	if err != nil {
 		return "", fmt.Errorf("アップロード用URLの発行に失敗した: %w", err)
@@ -115,6 +124,27 @@ func (s *S3Storage) DisplayURL(ctx context.Context, key string, ttl time.Duratio
 		return "", fmt.Errorf("表示用URLの発行に失敗した: %w", err)
 	}
 	return req.URL, nil
+}
+
+// MarkKept は state タグを kept に変え、期限削除の対象から外す。
+//
+// **1つずつ呼ぶ。** S3 のタグ付けに一括の API は無い。
+// 投稿1件あたり最大4枚なので、回数は問題にならない。
+func (s *S3Storage) MarkKept(ctx context.Context, keys ...string) error {
+	for _, k := range keys {
+		_, err := s.client.PutObjectTagging(ctx, &s3.PutObjectTaggingInput{
+			Bucket: aws.String(s.bucket),
+			Key:    aws.String(k),
+			Tagging: &types.Tagging{TagSet: []types.Tag{{
+				Key:   aws.String(StateTagKey),
+				Value: aws.String(StateTagKept),
+			}}},
+		})
+		if err != nil {
+			return fmt.Errorf("原本の保持印を付けられなかった (%s): %w", k, err)
+		}
+	}
+	return nil
 }
 
 func (s *S3Storage) Delete(ctx context.Context, keys ...string) error {

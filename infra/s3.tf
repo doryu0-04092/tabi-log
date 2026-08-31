@@ -65,8 +65,10 @@ resource "aws_s3_bucket_cors_configuration" "images" {
   cors_rule {
     allowed_methods = ["PUT"]
     allowed_origins = ["https://${aws_cloudfront_distribution.main.domain_name}"]
-    # 署名に焼き込んだ Content-Type を送る必要がある。
-    allowed_headers = ["content-type"]
+    # 署名に焼き込んだ値を送る必要がある。**許可し忘れると
+    # ブラウザが preflight で止め、アップロードが一切通らない。**
+    # x-amz-tagging は原本の保持印（state=pending）に使う。
+    allowed_headers = ["content-type", "x-amz-tagging"]
     expose_headers  = ["ETag"]
     max_age_seconds = 3000
   }
@@ -114,12 +116,28 @@ resource "aws_s3_bucket_policy" "images" {
 resource "aws_s3_bucket_lifecycle_configuration" "images" {
   bucket = aws_s3_bucket.images.id
 
+  # 投稿に使われなかった原本だけを消す。
+  #
+  # **接頭辞だけで絞ってはいけない。** originals/ を無条件に消すと、
+  # 投稿に使われた原本まで期限で消え、別解像度を後から作れなくなる
+  # (docs/er-diagram.md が前提にしている)。
+  #
+  # S3 のライフサイクルは「タグが無いこと」を条件にできない。そのため
+  # **確定していない側に state=pending を付ける**形にしてある。
+  # 付ける役はクライアントで、署名付き URL の署名にタグを焼き込み、
+  # 付けずに送ると S3 が弾く。投稿が確定した時点でアプリが kept に変える。
   rule {
     id     = "expire-unconfirmed-originals"
     status = "Enabled"
 
+    # 条件が2つ以上のときは and で包む必要がある。
     filter {
-      prefix = "originals/"
+      and {
+        prefix = "originals/"
+        tags = {
+          state = "pending"
+        }
+      }
     }
 
     expiration {

@@ -103,7 +103,11 @@ export async function uploadImage(
 		method: 'PUT',
 		// 署名に焼き込まれた値と一致させる必要がある。
 		// 違うと S3 が拒否する。
-		headers: { 'Content-Type': file.type },
+		//
+		// **x-amz-tagging は消してはいけない。** これが付いた原本だけが
+		// 期限削除の対象になる。投稿が確定するとサーバーが kept に変え、
+		// 対象から外れる。付けずに送ると署名が合わず S3 が拒否する。
+		headers: { 'Content-Type': file.type, 'x-amz-tagging': 'state=pending' },
 		body: file
 	});
 	if (!response.ok) {

@@ -124,3 +124,24 @@ func (s *PostStore) FindMediaByID(ctx context.Context, mediaID uint64) (MediaRec
 	}
 	return MediaRecord{ID: row.ID, UserID: row.UserID, S3Key: row.S3Key, Status: string(row.Status)}, nil
 }
+
+// ListOriginalKeys は投稿に紐づいた原本のキーを返す。
+//
+// **投稿の確定後に、保持印を付ける対象を知るために使う。**
+// 引数の media ID から引き直さないのは、実際に紐づいたのが
+// どれかを DB が持っているためである。紐づけは UPDATE の
+// 更新件数で判定しており、リクエストの内容と一致する保証は
+// 「成功した」ことからしか得られない。**DB を正とする。**
+//
+// variants は含めない。期限削除の対象は originals/ だけである。
+func (s *PostStore) ListOriginalKeys(ctx context.Context, postID uint64) ([]string, error) {
+	rows, err := s.q.ListMediaByPostID(ctx, sql.NullInt64{Int64: int64(postID), Valid: true})
+	if err != nil {
+		return nil, fmt.Errorf("原本のキーを取得できない: %w", err)
+	}
+	keys := make([]string, 0, len(rows))
+	for _, r := range rows {
+		keys = append(keys, r.S3Key)
+	}
+	return keys, nil
+}
