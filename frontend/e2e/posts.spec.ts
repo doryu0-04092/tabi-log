@@ -166,7 +166,10 @@ test('フィードのコメント数からコメント欄へ行ける', async ({
 
 	// **いいねと同じ場所にある。** どちらも押せることを確かめる。
 	await expect(card.getByRole('button', { name: /いいね/ })).toBeVisible();
-	const comments = card.getByRole('link', { name: /コメント/ });
+	// **端をそろえた正規表現で当てる。** /コメント/ だけだと、
+	// 表示名に「コメント」を含む利用者の投稿者リンク（「コメント導線 @e2e_...」）にも
+	// 当たり、locator が 2 つに解決して落ちる。実際に一度落とした。
+	const comments = card.getByRole('link', { name: /^コメント \d+件$/ });
 	await expect(comments).toBeVisible();
 
 	await comments.click();
@@ -186,5 +189,5 @@ test('詳細画面のコメント数はリンクにしない', async ({ page }) 
 	// createPost は詳細画面で終わる。
 	await expect(page).toHaveURL(/\/posts\/\d+/);
 	const card = page.getByRole('article').filter({ hasText: body });
-	await expect(card.getByRole('link', { name: /コメント/ })).toHaveCount(0);
+	await expect(card.getByRole('link', { name: /^コメント \d+件$/ })).toHaveCount(0);
 });
