@@ -129,3 +129,119 @@ resource "aws_lambda_permission" "from_s3" {
   # 同じアカウントのバケットに限る。
   source_account = data.aws_caller_identity.current.account_id
 }
+
+########################################
+# 画像処理が失敗したときに気づく
+########################################
+
+# S3 → Lambda は非同期である。**呼び出し側は結果を知らない。**
+# 既定では2回再試行したあと、失敗はどこにも残らずに捨てられる。
+#
+# 画面は22秒で諦め、media は pending のまま残る。
+# **利用者には「処理中のまま終わらない画像」に見え、こちらには
+# 何も届かない。** 拾い直す仕組みの前に、まず気づけるようにする。
+resource "aws_sqs_queue" "imageworker_dlq" {
+  name = "${var.project}-imageworker-dlq"
+
+  # 14 日は SQS の上限。**捨てる理由が無い。** 溜まるのは
+  # 失敗した呼び出しだけで、量も費用も問題にならない。
+  message_retention_seconds = 1209600
+
+  tags = { Name = "${var.project}-imageworker-dlq" }
+}
+
+# **再試行の回数を明示する。** 既定と同じ値だが、書いておかないと
+# 「何回試して諦めたのか」がコードから読めない。
+resource "aws_lambda_function_event_invoke_config" "imageworker" {
+  function_name          = aws_lambda_function.imageworker.function_name
+  maximum_retry_attempts = 2
+
+  destination_config {
+    on_failure {
+      destination = aws_sqs_queue.imageworker_dlq.arn
+    }
+  }
+}
+
+# 溜まったら気づく。
+#
+# **1件で鳴らす。** 画像処理の失敗は例外的な出来事であり、
+# 「何件からが異常か」を決める根拠が無い。件数で閾値を作ると、
+# その根拠のない数字が独り歩きする。
+resource "aws_cloudwatch_metric_alarm" "imageworker_dlq" {
+  alarm_name          = "${var.project}-imageworker-dlq"
+  alarm_description   = "画像処理が再試行後も失敗し、DLQ に積まれた。media が pending のまま残っている。"
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+
+  # **データが無い間は鳴らさない。** 失敗が無ければ SQS は
+  # メトリクスを出さず、欠測を異常とみなすと常時鳴り続ける。
+  treat_missing_data = "notBreaching"
+
+  dimensions = { QueueName = aws_sqs_queue.imageworker_dlq.name }
+
+  alarm_actions = local.alarm_actions
+  ok_actions    = local.alarm_actions
+}
+
+# Lambda 自体のエラー。**DLQ に積まれる前の段階で見える。**
+# 再試行で成功したものはここにしか出ない。
+resource "aws_cloudwatch_metric_alarm" "imageworker_errors" {
+  alarm_name          = "${var.project}-imageworker-errors"
+  alarm_description   = "画像処理でエラーが出ている。再試行で成功していても、原因は残っている。"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Errors"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = { FunctionName = aws_lambda_function.imageworker.function_name }
+
+  alarm_actions = local.alarm_actions
+  ok_actions    = local.alarm_actions
+}
+
+# 通知先。**既定では作らない。**
+#
+# 送り先を決めずに作っても、鳴っていることに誰も気づかない。
+# alert_email を渡したときだけ作り、購読の確認メールが飛ぶ。
+resource "aws_sns_topic" "alerts" {
+  count = var.alert_email == "" ? 0 : 1
+  name  = "${var.project}-alerts"
+}
+
+resource "aws_sns_topic_subscription" "alerts_email" {
+  count     = var.alert_email == "" ? 0 : 1
+  topic_arn = aws_sns_topic.alerts[0].arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
+locals {
+  # 通知先が無ければ空にする。**アラーム自体は作る。**
+  # 鳴っている事実はコンソールと API から見える。
+  alarm_actions = var.alert_email == "" ? [] : [aws_sns_topic.alerts[0].arn]
+}
+
+# 失敗した呼び出しを DLQ へ送る権限。
+data "aws_iam_policy_document" "lambda_dlq" {
+  statement {
+    effect    = "Allow"
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.imageworker_dlq.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_dlq" {
+  name   = "dlq"
+  role   = aws_iam_role.lambda.id
+  policy = data.aws_iam_policy_document.lambda_dlq.json
+}

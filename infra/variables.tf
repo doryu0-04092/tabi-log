@@ -184,15 +184,23 @@ variable "db_username" {
 
 variable "db_engine_version" {
   description = <<-EOT
-    MySQL の版。
+    MySQL の版。**メジャー版までしか指定しない。**
 
     **8.4 系を選ぶ理由**: 8.0 は 2026-04 に標準サポートが終わっており、
     8.4 は LTS で 2032 までサポートされる。
     ap-northeast-1 で 8.4.5〜8.4.11 が利用可能、既定は 8.4.9 であることを
     2026-08-28 に `aws rds` API で確認済み。
+
+    **マイナー版まで固定してはいけない。** auto_minor_version_upgrade を
+    有効にしているため、AWS が勝手にマイナー版を上げる。固定していると、
+    上がった直後の plan が「8.4.10 を 8.4.9 に戻す」差分を出す。
+    設定と実態が食い違い、次に apply する人が意図しない変更を踏む。
+
+    "8.4" と書けば RDS がその時点の既定マイナー版を選び、
+    以降の自動更新とも矛盾しない。
   EOT
   type        = string
-  default     = "8.4.9"
+  default     = "8.4"
 }
 
 variable "db_instance_class" {
@@ -310,4 +318,36 @@ variable "github_deploy_subjects" {
   EOT
   type        = list(string)
   default     = ["repo:doryu0-04092/tabi-log:ref:refs/heads/main"]
+}
+
+variable "cd_image_tag_prefix" {
+  description = <<-EOT
+    CD が積むイメージのタグの接頭辞。
+
+    **ECR のライフサイクルで「消してよいもの」を選ぶために使う。**
+    ECR は「このタグは消さない」を書けず、消す対象を選ぶことしかできない。
+    素のコミット SHA には共通の接頭辞が無いため対象を絞れず、
+    tagStatus = "any" にするしかなくなる。それだと migrate / initial の
+    イメージまで巻き込んで消える（どちらも Terraform が名指しで参照する）。
+
+    **`.github/workflows/deploy.yml` のタグの付け方と揃っている必要がある。**
+    片方だけ変えると、消えないイメージが溜まり続けるか、
+    消してはいけないものが消える。
+  EOT
+  type        = string
+  default     = "sha-"
+}
+
+variable "alert_email" {
+  description = <<-EOT
+    アラームの通知先メールアドレス。**空なら通知しない。**
+
+    空でもアラーム自体は作る。鳴っている事実はコンソールと API から
+    見える。**送り先を決めずに通知の仕組みだけ作ると、鳴っていることに
+    誰も気づかないまま「監視している」つもりになる。**
+
+    値を入れると購読の確認メールが届く。**承認するまで届かない。**
+  EOT
+  type        = string
+  default     = ""
 }

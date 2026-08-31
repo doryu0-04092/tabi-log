@@ -83,6 +83,76 @@ resource "aws_cloudfront_function" "spa_fallback" {
     }
   JS
 }
+# 応答ヘッダー（安全側の既定）
+#
+# **全経路に付ける。** 画面も API も画像も同じ配信元から出ており、
+# 経路ごとに抜けがあると、抜けている経路が狙われる。
+resource "aws_cloudfront_response_headers_policy" "security" {
+  name = "${var.project}-security"
+
+  security_headers_config {
+    # HTTPS 以外で来させない。**CloudFront は HTTP を HTTPS に
+    # 転送しているが、その1回目は平文で飛ぶ。** HSTS があれば
+    # 2回目以降はブラウザが自分で HTTPS にする。
+    #
+    # preload は申請しない。**取り消しに数か月かかる**ため、
+    # 独自ドメインを持たない学習用の構成では割に合わない。
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      include_subdomains         = true
+      preload                    = false
+      override                   = true
+    }
+
+    # 宣言した型として扱わせる。**画像として上げたものが
+    # スクリプトとして解釈される経路を塞ぐ。**
+    content_type_options {
+      override = true
+    }
+
+    # 埋め込ませない。クリックジャッキング対策。
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+
+    # 外部サイトへ遷移するときに、どのページから来たかを渡さない。
+    # **投稿の URL には投稿 ID が入る。**
+    referrer_policy {
+      referrer_policy = "strict-origin-when-cross-origin"
+      override        = true
+    }
+
+    # **script-src を self に絞るのが要点である。** 外部の CDN から
+    # スクリプトを読めなくする。読めると、その CDN が改ざんされた時点で
+    # 同一オリジンから API を呼ばれる（docs/audit-2026-08-31.md H4）。
+    #
+    # unsafe-inline を許しているのは、SvelteKit が起動用のスクリプトを
+    # HTML に直接書き込むためである。**外すには SvelteKit 側の csp 設定で
+    # ハッシュを埋める必要があり、それは別の変更として行う。**
+    # 外部スクリプトを塞ぐという主目的はこのままでも果たせている。
+    #
+    # connect-src に画像バケットを入れているのは、**アップロードが
+    # ブラウザから S3 へ直接 PUT する**ためである。入れ忘れると
+    # 画像の送信だけが動かなくなる。
+    content_security_policy {
+      content_security_policy = join("; ", [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data: blob:",
+        "connect-src 'self' https://${aws_s3_bucket.images.bucket_regional_domain_name}",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "object-src 'none'",
+      ])
+      override = true
+    }
+  }
+}
+
 resource "aws_cloudfront_distribution" "main" {
   enabled = true
   comment = var.project
@@ -140,7 +210,8 @@ resource "aws_cloudfront_distribution" "main" {
     cached_methods         = ["GET", "HEAD"]
 
     # Vite の出力はファイル名にハッシュが付くため、長く持たせて安全である。
-    cache_policy_id = data.aws_cloudfront_cache_policy.optimized.id
+    cache_policy_id            = data.aws_cloudfront_cache_policy.optimized.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
 
     compress = true
 
@@ -167,8 +238,9 @@ resource "aws_cloudfront_distribution" "main" {
     # 利用者ごとにキャッシュキーを分ける方法もあるが、
     # ヒット率がほぼ出ないうえ、設定を誤ったときの被害が大きい。
     # 転送量は CDN ではなく gzip で減らす。
-    cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+    cache_policy_id            = data.aws_cloudfront_cache_policy.disabled.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
 
     compress = true
   }
@@ -196,7 +268,8 @@ resource "aws_cloudfront_distribution" "main" {
     # **画像用のポリシーを使う。** CachingOptimized だと
     # Accept-Encoding がキャッシュキーに入り、再圧縮しても縮まない
     # JPEG が gzip / br / 無圧縮で分かれてしまう。
-    cache_policy_id = data.aws_cloudfront_cache_policy.optimized_uncompressed.id
+    cache_policy_id            = data.aws_cloudfront_cache_policy.optimized_uncompressed.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
 
     # **Cookie を持つ者だけに配る。**
     # これが無いと、URL を知っている全員が読めることになる。

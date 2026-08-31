@@ -127,6 +127,7 @@ func run() error {
 		CommentCreateLimit: cfg.Auth.CommentCreateLimit,
 		UploadLimit:        cfg.Auth.UploadLimit,
 		Deletions:          store.NewObjectDeletionQueue(db),
+		IsProduction:       cfg.Env == "production",
 		WriteLimitWindow:   cfg.Auth.WriteLimitWindow,
 		LoginAttemptWindow: cfg.Auth.LoginAttemptWindow,
 		Logger:             logger,
