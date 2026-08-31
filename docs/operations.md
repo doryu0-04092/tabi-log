@@ -138,7 +138,7 @@ CloudWatch Alarms → **Amazon SNS** で通知する。
 | A1 | ALB のターゲットが 0 healthy、2分継続 | P1 | 誰も使えない |
 | A2 | 5xx 率 > 5%、5分継続 | P1 | 20人に1人が失敗している。単発の失敗と区別するため5分見る。**499 は数えない**（相手が切っただけで、サーバーは失敗していない） |
 | A3 | `readyz` の失敗が3分継続 | P1 | DB へ到達できていない。**`livez` は 200 のままなのでタスクは置き換わらない** |
-| A4 | p95 > 1000ms、10分継続 | P2 | 要件は 300ms。**負荷試験の実測は 7.9ms**（ローカル、50VU）なので、1000ms は明らかな異常の線。**AWS で測り直して詰める**（暫定） |
+| A4 | p95 > 1000ms、10分継続 | P2 | 要件は 300ms。**AWS の実測は p95 89.5ms**（2026-08-31、load 50VU、`perf/README.md`）なので、1000ms は明らかな異常の線 |
 | A5 | 画像処理 Lambda のエラー率 > 10%、10分継続 | P2 | 新規投稿ができない。既存の閲覧には影響しない |
 | A6 | DB 接続プール使用率 > 90%、10分継続 | P2 | 詰まる前に気づくための線（暫定・要実測） |
 | A7 | RDS の空きストレージ < 20% | P2 | 尽きると停止する。余裕をもって気づく |
@@ -148,6 +148,42 @@ CloudWatch Alarms → **Amazon SNS** で通知する。
 
 **鳴らさないもの**: 単発の 5xx、単発の Lambda 失敗、1回の `readyz` 失敗。
 **一時的な失敗で鳴らすと、鳴っても見なくなる。**
+
+### 3.3 通知先の設定
+
+**アラームを作っただけでは、鳴っても誰にも届かない。** 送り先を決めるまで
+「監視しているつもり」になる。ここを最後の1手順として明示しておく。
+
+送り先は Terraform の変数 `alert_email` で渡す。**空のままだと SNS の
+トピックも購読も作られない**（`infra/lambda.tf`）。アラーム自体は作られるので、
+鳴っている事実はコンソールと API からは見える。
+
+```
+# infra/terraform.tfvars（.gitignore 済み。公開リポジトリには載らない）
+alert_email = "you@example.com"
+```
+
+```
+cd infra
+terraform apply
+```
+
+**apply したあと、AWS から購読の確認メールが届く。承認するまで通知は来ない。**
+承認を忘れると、設定した本人が「設定した」と思ったまま届かない状態になる。
+apply したらメールを確認すること。
+
+確認のしかた:
+
+```
+aws sns list-subscriptions-by-topic \
+  --topic-arn "$(aws sns list-topics --query "Topics[?contains(TopicArn,'tabilog-alerts')].TopicArn" --output text)" \
+  --query 'Subscriptions[].{endpoint:Endpoint,arn:SubscriptionArn}'
+```
+
+`SubscriptionArn` が `PendingConfirmation` のままなら、まだ承認されていない。
+
+**メールアドレスをリポジトリに書かないこと。** `infra/terraform.tfvars` は
+`.gitignore` 済みで、`terraform.tfvars.example` には差し替え用の値だけ置いてある。
 
 ---
 
@@ -291,7 +327,7 @@ CloudWatch Dashboard を **Terraform で定義する**（手作業で作らな�
 | 項目 | 状態 |
 |---|---|
 | CloudWatch EMF によるメトリクス | 未実装。AWS へ載せる作業とあわせて入れる |
-| アラートの設定（CloudWatch Alarms + SNS） | 未実装。§3.2 の条件は決めてあるが、まだ鳴らない |
+| アラートの設定（CloudWatch Alarms + SNS） | **画像処理の2件だけ実装済み**（DLQ の滞留と Lambda の Errors、`infra/lambda.tf`）。§3.2 の API 側の条件は決めてあるが、まだ鳴らない |
 | ダッシュボード | 未実装 |
 | 資源側の閾値（A6・A7 ほか） | **暫定。AWS で実測して確定する** |
-| 本番相当での負荷試験 | 未実施。**ローカルの数字は本番の予測にならない**（`perf/README.md`） |
+| 本番相当での負荷試験 | **2026-08-31 に AWS で実施済み**（load p95 89.5ms、stress 304.9 req/s、エラー0件。限界は Fargate CPU で RDS は余っていた。`perf/README.md`） |

@@ -165,7 +165,11 @@ type DBConfig struct {
 	// MaxOpenConns はこのプロセスが同時に開く接続の上限である。
 	//
 	// 「タスク数 × MaxOpenConns <= MySQL の max_connections」を満たす必要がある。
-	// 既定値 25 は、ECS のタスク2つで 50 となり db.t4g.small の上限（約225）に収まる。
+	// db.t4g.small の max_connections は既定の式 {DBInstanceClassMemory/12582880}
+	// でおよそ 170 である。既定値 25 なら、タスク2つで 50 となり収まる。
+	//
+	// **確認用の構成は db.t4g.micro（約85）を 1 タスクで使っている。**
+	// 25 × 1 = 25 で収まるが、**クラスとタスク数の両方が上限を決める。**
 	// タスク数を増やす場合はこの式が上限の根拠になる。
 	MaxOpenConns    int
 	MaxIdleConns    int
