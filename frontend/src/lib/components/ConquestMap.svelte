@@ -161,7 +161,7 @@
 
 	{#if showTable}
 		<table>
-			<caption>都道府県ごとの投稿数</caption>
+			<caption>都道府県ごとの投稿数（行の色は地方）</caption>
 			<thead>
 				<tr>
 					<th scope="col">都道府県</th>
@@ -172,7 +172,13 @@
 			</thead>
 			<tbody>
 				{#each prefectures as p (p.code)}
-					<tr>
+					<!--
+						**行にも地方の色を薄く敷く。** マップと表で同じ地方が同じ色になり、
+						見比べたときに対応が取れる。薄くするのは、色が情報を運ぶのではなく
+						地方のまとまりを示すだけだからである。地方そのものは「地方」の列に
+						語で出ており、色が見えなくても情報は落ちない。
+					-->
+					<tr style="--hue:{REGION_HUES[p.region] ?? 210};">
 						<th scope="row">
 							<a href={resolve('/prefectures/[code]', { code: p.code })}>{p.name}</a>
 						</th>
@@ -295,8 +301,35 @@
 	table {
 		width: 100%;
 		margin-top: var(--space-4);
-		border-collapse: collapse;
+		/* **collapse ではなく separate にする。** collapse では隣り合う枠線が
+		   1本に畳まれる際に行の背景の上へ重なり、色の境目が濁る。
+		   行間は 0 のままにするので、見た目の詰まり方は変わらない。 */
+		border-collapse: separate;
+		border-spacing: 0;
 		font-size: 0.875rem;
+	}
+
+	/*
+	 * 行の背景。**色相だけを行から受け取り、明度と彩度はここで決める。**
+	 *
+	 * 行ごとに出来上がった色を渡すと、暗いテーマに切り替えたときに
+	 * 追従できない。色相はデータ（地方）で決まり、明るさは見た目の都合で
+	 * 決まるので、決める場所を分ける。
+	 *
+	 * 明度 95% は本文の色（#1c2b2d）に対してどの色相でも 15:1 以上あり、
+	 * 4.5:1 の基準を大きく超える。
+	 */
+	tbody tr {
+		background: hsl(var(--hue) 55% 95%);
+	}
+
+	/* **暗いテーマでは明度を反転する。** 同じ 95% を敷くと、
+	   明るい地に明るい文字（#f6ecd8）が乗って読めなくなる。
+	   18% はどの色相でも 9:1 以上ある。 */
+	@media (prefers-color-scheme: dark) {
+		tbody tr {
+			background: hsl(var(--hue) 30% 18%);
+		}
 	}
 
 	caption {
@@ -310,6 +343,13 @@
 		padding: var(--space-2);
 		text-align: left;
 		border-bottom: var(--line);
+	}
+
+	/* separate では枠線が畳まれないため、表の下端が二重に見える。
+	   最終行だけ止める。 */
+	tbody tr:last-child th,
+	tbody tr:last-child td {
+		border-bottom: none;
 	}
 
 	thead th {

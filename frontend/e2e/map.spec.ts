@@ -155,4 +155,42 @@ test.describe('都道府県制覇マップ', () => {
 
 		expect(results.violations).toEqual([]);
 	});
+
+	/*
+	表の行に地方の色が実際に付くこと。
+
+	**CSS を書いただけでは足りない。** Svelte は使われていないと判断した
+	規則を落とすし、色相を行へ渡し忘れても画面は壊れず、色が付かないまま
+	静かに通ってしまう。**描画結果の色を読んで確かめる。**
+
+	色は情報を運ばない（地方は「地方」の列に語で出ている）ので、
+	ここで見るのは「意図した見た目になっているか」である。
+	*/
+	test('表の行に地方ごとの色が付く', async ({ page }) => {
+		const me = await signup(page, { displayName: '表の色を見る人' });
+
+		await page.goto(`/users/${me.handle}`);
+		await page.getByRole('button', { name: '同じ内容を表で見る' }).click();
+
+		const row = (name: string) =>
+			page.getByRole('row').filter({ has: page.getByRole('cell', { name, exact: true }) });
+
+		// 北海道（北海道）と 東京都（関東）は別の地方なので、別の色になる。
+		const hokkaido = row('北海道').first();
+		const tokyo = row('関東').first();
+
+		const color = async (loc: typeof hokkaido) =>
+			loc.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+		const a = await color(hokkaido);
+		const b = await color(tokyo);
+
+		// **透明のままなら色が当たっていない。**
+		expect(a, '行に背景色が付いていない').not.toBe('rgba(0, 0, 0, 0)');
+		expect(a, '行に背景色が付いていない').not.toBe('transparent');
+		expect(b, '行に背景色が付いていない').not.toBe('rgba(0, 0, 0, 0)');
+
+		// 地方が違えば色も違う。
+		expect(a, '地方が違うのに同じ色になっている').not.toBe(b);
+	});
 });
