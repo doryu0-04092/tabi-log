@@ -48,8 +48,9 @@ test.describe('都道府県制覇マップ', () => {
 		await page.getByRole('button', { name: '同じ内容を表で見る' }).click();
 		const table = page.getByRole('table');
 		await expect(table.getByRole('row')).toHaveCount(48); // 見出しの行を含む
-		await expect(table.getByRole('cell', { name: '東京都', exact: true })).toBeVisible();
-		await expect(table.getByRole('cell', { name: '沖縄県', exact: true })).toBeVisible();
+		// **県名は行見出しなので役割は rowheader である。** cell では当たらない。
+		await expect(table.getByRole('rowheader', { name: '東京都' })).toBeVisible();
+		await expect(table.getByRole('rowheader', { name: '沖縄県' })).toBeVisible();
 	});
 
 	// **各マスは県名と件数を読み上げられる。** 色だけでは何も伝わらない。
