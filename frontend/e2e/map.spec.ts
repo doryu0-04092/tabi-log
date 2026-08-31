@@ -19,30 +19,37 @@ test.describe('都道府県制覇マップ', () => {
 	});
 
 	/*
-	マスに県名が出ること。
+	県名が読み上げに渡ること。
 
-	**以前は訪問済みの頭文字1文字だけだった。** どの県か分からず、
-	色の濃さで訪問済みを見分けるしかなかった。
+	**県名は絵に焼き込まれており、DOM には無い。** 見えている文字を
+	そのまま拾える作りではないので、伝える役は次の3つが担う。
 
-	表示は「都・府・県」を落とす。枠の幅が2文字を基準のため、
-	接尾辞を付けると全県が3文字以上になって文字が縮む。
-	読み上げ用のラベルには正式名称を残すので、情報は落ちない。
-	北海道は「道」で終わるが3文字で1つの名前なので落とさない。
+	  ① リンクの aria-label（県名・件数・訪問済みかどうか）
+	  ② 「同じ内容を表で見る」の表（県名が文字として並ぶ）
+	  ③ 率の表示（何県中何県か）
+
+	絵そのものは読み上げから外してある。1つの説明でまとめても
+	47県ぶんの中身は伝わらず、読み上げの邪魔になるためである。
 	*/
-	test('マスに県名が出る（都・府・県は落とす）', async ({ page }) => {
-		const me = await signup(page, { displayName: '県名を見る人' });
+	test('県名は絵ではなく、ラベルと表で伝わる', async ({ page }) => {
+		const me = await signup(page, { displayName: '読み上げを見る人' });
 
 		await page.goto(`/users/${me.handle}`);
 		const map = page.getByRole('group', { name: '都道府県ごとの投稿' });
 
-		await expect(map.getByText('東京', { exact: true })).toBeVisible();
-		await expect(map.getByText('京都', { exact: true })).toBeVisible();
-		await expect(map.getByText('神奈川', { exact: true })).toBeVisible();
-		await expect(map.getByText('北海道', { exact: true })).toBeVisible();
-
-		// 未訪問でも名前は出る。**訪問済みかどうかは名前の有無で示さない。**
+		// ① 47件すべてにラベルが付く。
+		await expect(map.getByRole('link')).toHaveCount(47);
 		await expect(map.getByRole('link', { name: '沖縄県 0件（未訪問）' })).toBeVisible();
-		await expect(map.getByText('沖縄', { exact: true })).toBeVisible();
+
+		// **絵は読み上げに出さない。** 出すと中身の無い項目が1つ増えるだけになる。
+		await expect(map.getByRole('img')).toHaveCount(0);
+
+		// ② 表には県名が文字として並ぶ。
+		await page.getByRole('button', { name: '同じ内容を表で見る' }).click();
+		const table = page.getByRole('table');
+		await expect(table.getByRole('row')).toHaveCount(48); // 見出しの行を含む
+		await expect(table.getByRole('cell', { name: '東京都', exact: true })).toBeVisible();
+		await expect(table.getByRole('cell', { name: '沖縄県', exact: true })).toBeVisible();
 	});
 
 	// **各マスは県名と件数を読み上げられる。** 色だけでは何も伝わらない。
@@ -154,6 +161,39 @@ test.describe('都道府県制覇マップ', () => {
 			.analyze();
 
 		expect(results.violations).toEqual([]);
+	});
+
+	/*
+	狭い画面で、地図だけが横に流れること。
+
+	**絵は 1536px 幅の画像で、縮めると県名も同じ比率で縮む。**
+	画面幅に合わせると 390px の端末で文字が 5px になり、読むことも
+	押すこともできない。縮めて読めなくするより、はみ出させて読めるほうを取る。
+
+	ただし**ページ全体が横に溢れてはいけない。** 溢れると、地図と関係ない
+	本文まで横スクロールが要る画面になる。地図の枠の中だけで流す。
+	*/
+	test('狭い画面では地図だけが横に流れる', async ({ page }) => {
+		const me = await signup(page, { displayName: '狭い画面の人' });
+
+		await page.setViewportSize({ width: 390, height: 780 });
+		await page.goto(`/users/${me.handle}`);
+		await expect(page.getByRole('group', { name: '都道府県ごとの投稿' })).toBeVisible();
+
+		const measured = await page.evaluate(() => {
+			const doc = document.documentElement;
+			const svg = document.querySelector('svg[role="group"]');
+			const viewport = svg?.closest('div')?.parentElement;
+			return {
+				pageOverflow: doc.scrollWidth - doc.clientWidth,
+				mapOverflow: viewport ? viewport.scrollWidth - viewport.clientWidth : 0
+			};
+		});
+
+		// ページ全体は横に溢れない。
+		expect(measured.pageOverflow, 'ページ全体が横に溢れている').toBeLessThanOrEqual(1);
+		// 地図は枠の中で横に流れる。
+		expect(measured.mapOverflow, '地図が横に流れていない（縮んでいる）').toBeGreaterThan(100);
 	});
 
 	/*

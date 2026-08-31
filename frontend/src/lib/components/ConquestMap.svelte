@@ -1,93 +1,44 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { PrefectureCount } from '$lib/api/users';
-	import {
-		PREFECTURE_TILES,
-		REGION_HUES,
-		TILE_GAP,
-		TILE_UNIT_X,
-		TILE_UNIT_Y
-	} from '$lib/data/prefecture-tiles';
+	import mapImage from '$lib/assets/japan-map.png';
+	import { MAP_HEIGHT, MAP_WIDTH, PREFECTURE_HITS, REGION_COLORS } from '$lib/data/prefecture-hits';
 
 	let { prefectures }: { prefectures: PrefectureCount[] } = $props();
 
 	let byCode = $derived(new Map(prefectures.map((p) => [p.code, p])));
 
-	/** 角丸の半径。参考図に近い丸みにしている。 */
-	const RADIUS = 8;
-
-	/** 図の余白。突起と輪郭線が切れないだけの幅を取る。 */
-	const PAD = 10;
-
 	/**
-	 * マスに書く名前。**「都」「府」「県」を落とす。**
+	 * 押せる場所。**県名の文字の上に重ねる。**
 	 *
-	 * 枠の幅は2文字を基準にしている。接尾辞を付けると全県が3文字以上になり、
-	 * 文字が枠に合わせて縮んで読めなくなる。読み上げ用の aria-label には
-	 * 正式名称をそのまま使うので、情報は落ちない。
-	 *
-	 * 北海道は「道」で終わるが3文字で1つの名前なので落とさない。
+	 * データベースに無い県コードは出さない。マスタは 47 件固定だが、
+	 * 取得に失敗した状態で当たり判定だけ出すと、押しても何も起きない。
 	 */
-	function shortName(name: string): string {
-		return name.length > 2 ? name.replace(/[都府県]$/, '') : name;
-	}
-
-	/**
-	 * 描画用のマス。
-	 *
-	 * 配置データの「マス単位」を px に直し、文字の大きさまでここで決める。
-	 * **テンプレート側に計算を置かない** — 47件ぶん式が並ぶと読めなくなる。
-	 */
-	let tiles = $derived(
-		PREFECTURE_TILES.flatMap((t) => {
-			const prefecture = byCode.get(t.code);
+	let hits = $derived(
+		PREFECTURE_HITS.flatMap((h) => {
+			const prefecture = byCode.get(h.code);
 			if (prefecture === undefined) return [];
-
-			const w = (t.width ?? 1) * TILE_UNIT_X - TILE_GAP;
-			const h = (t.height ?? 1) * TILE_UNIT_Y - TILE_GAP;
-			const label = shortName(prefecture.name);
-
-			return [
-				{
-					code: t.code,
-					prefecture,
-					visited: prefecture.postCount > 0,
-					hue: REGION_HUES[prefecture.region] ?? 210,
-					x: t.col * TILE_UNIT_X,
-					y: t.row * TILE_UNIT_Y,
-					w,
-					h,
-					// **枠に収まる大きさにする。** 高さから決めた値と、
-					// 文字数で割った幅の小さいほうを取る。3文字の県が潰れない。
-					label,
-					fontSize: Math.min(h * 0.52, (w / label.length) * 1.05),
-					tail: t.tail === true
-				}
-			];
+			return [{ ...h, prefecture, visited: prefecture.postCount > 0 }];
 		})
 	);
-
-	/** 図の表示範囲。マスの位置から求めるので、配置を変えても追従する。 */
-	let viewBox = $derived.by(() => {
-		if (tiles.length === 0) return '0 0 1 1';
-		const minX = Math.min(...tiles.map((t) => t.x));
-		const minY = Math.min(...tiles.map((t) => t.y));
-		const maxX = Math.max(...tiles.map((t) => t.x + t.w));
-		// 北海道の突起は枠の下へ出るぶんを足す。
-		const maxY = Math.max(...tiles.map((t) => t.y + t.h + (t.tail ? TILE_UNIT_Y * 0.42 : 0)));
-		return `${minX - PAD} ${minY - PAD} ${maxX - minX + PAD * 2} ${maxY - minY + PAD * 2}`;
-	});
 
 	let visited = $derived(prefectures.filter((p) => p.postCount > 0));
 	let rate = $derived(
 		prefectures.length === 0 ? 0 : Math.round((visited.length / prefectures.length) * 100)
 	);
 
+	/** 地方の色を CSS へ渡す。**明度は CSS 側で決める。** */
+	function tint(region: string): string {
+		const c = REGION_COLORS[region];
+		return c === undefined ? '--hue:210; --sat:20%;' : `--hue:${c.hue}; --sat:${c.sat}%;`;
+	}
+
 	/**
 	 * 同じ内容を表でも見せるかどうか。
 	 *
-	 * **マップは補助であって、唯一の伝え方にはしない。** 位置関係を
-	 * 頼りにできない利用者にも、県名と件数の一覧で同じ情報が届く必要がある。
+	 * **マップは補助であって、唯一の伝え方にはしない。**
+	 * 県名は絵に焼き込まれており、読み上げには渡らない。
+	 * 位置関係を頼りにできない利用者には、表が唯一の経路になる。
 	 */
 	let showTable = $state(false);
 </script>
@@ -95,64 +46,51 @@
 <section aria-labelledby="map-heading">
 	<div class="head">
 		<h2 id="map-heading">都道府県制覇マップ</h2>
-		<!--
-			率は色ではなく数と語で示す。マップを見なくても達成が分かる。
-		-->
+		<!-- 率は色ではなく数と語で示す。マップを見なくても達成が分かる。 -->
 		<p class="rate">{visited.length} / {prefectures.length} 県（{rate}%）</p>
 	</div>
 
 	<!--
-		**マスはリンクにする。** その県の投稿一覧へ行けることが目的であり、
-		キーボードでも順に辿れる必要がある。
-		aria-label に県名と件数を入れ、読み上げだけで内容が分かるようにする。
+		**絵は 1 枚の画像で、その上に県名ぶんのリンクを重ねる。**
 
-		地理的に正確な形ではなく角丸の枠に県名を書く。理由は
-		prefecture-tiles.ts の冒頭に書いた。
+		県ごとの領域を持たないため、訪問済みを県の形で塗ることはできない。
+		代わりに県名の枠を塗り、印を添える。制覇の全体像は率と表で伝える。
+
+		画像そのものは読み上げから外す。県名は絵に焼き込まれており、
+		画像を1つの説明でまとめても中身は伝わらない。
+		伝える役はリンクの aria-label と表が担う。
 	-->
-	<div class="map">
-		<svg {viewBox} role="group" aria-label="都道府県ごとの投稿">
-			{#each tiles as tile (tile.code)}
-				{@const p = tile.prefecture}
-				<a
-					class="tile"
-					class:visited={tile.visited}
-					style="--hue:{tile.hue};"
-					href={resolve('/prefectures/[code]', { code: p.code })}
-					aria-label="{p.name} {p.postCount}件{tile.visited ? '（訪問済み）' : '（未訪問）'}"
-				>
-					{#if tile.tail}
-						<!-- 北海道の左下の突起。形の手がかりとして付ける。 -->
-						<rect
-							class="tail"
-							x={tile.x + tile.w * 0.06}
-							y={tile.y + tile.h - 2}
-							width={tile.w * 0.2}
-							height={TILE_UNIT_Y * 0.42}
-							rx={RADIUS * 0.6}
-						/>
-					{/if}
-					<rect class="box" x={tile.x} y={tile.y} width={tile.w} height={tile.h} rx={RADIUS} />
-					<!--
-						**色の違いだけで訪問済みを示さない。** 訪問済みには
-						右上に印を打つ。塗りの濃さ・印の有無・読み上げのラベルの
-						3つで伝える。
-					-->
-					{#if tile.visited}
-						<circle class="dot" cx={tile.x + tile.w - 7} cy={tile.y + 7} r="2.6" />
-					{/if}
-					<text
-						class="name"
-						x={tile.x + tile.w / 2}
-						y={tile.y + tile.h / 2}
-						text-anchor="middle"
-						dominant-baseline="central"
-						font-size={tile.fontSize.toFixed(1)}
+	<div class="viewport">
+		<div class="stage">
+			<svg viewBox="0 0 {MAP_WIDTH} {MAP_HEIGHT}" role="group" aria-label="都道府県ごとの投稿">
+				<image
+					href={mapImage}
+					x="0"
+					y="0"
+					width={MAP_WIDTH}
+					height={MAP_HEIGHT}
+					aria-hidden="true"
+				/>
+				{#each hits as hit (hit.code)}
+					{@const p = hit.prefecture}
+					<a
+						class="pref"
+						class:visited={hit.visited}
+						href={resolve('/prefectures/[code]', { code: p.code })}
+						aria-label="{p.name} {p.postCount}件{hit.visited ? '（訪問済み）' : '（未訪問）'}"
 					>
-						{tile.label}
-					</text>
-				</a>
-			{/each}
-		</svg>
+						<rect x={hit.x} y={hit.y} width={hit.w} height={hit.h} rx="6" />
+						<!--
+							**色の違いだけで訪問済みを示さない。** 塗りに加えて
+							右上に印を打ち、読み上げのラベルにも語で入れる。
+						-->
+						{#if hit.visited}
+							<circle class="dot" cx={hit.x + hit.w - 5} cy={hit.y + 5} r="4" />
+						{/if}
+					</a>
+				{/each}
+			</svg>
+		</div>
 	</div>
 
 	<button type="button" onclick={() => (showTable = !showTable)} aria-expanded={showTable}>
@@ -173,12 +111,11 @@
 			<tbody>
 				{#each prefectures as p (p.code)}
 					<!--
-						**行にも地方の色を薄く敷く。** マップと表で同じ地方が同じ色になり、
-						見比べたときに対応が取れる。薄くするのは、色が情報を運ぶのではなく
-						地方のまとまりを示すだけだからである。地方そのものは「地方」の列に
-						語で出ており、色が見えなくても情報は落ちない。
+						**行にも地図と同じ地方の色を薄く敷く。** 並べたときに
+						どの行がどの地方かが地図と対応する。色は情報を運ばない
+						（地方は「地方」の列に語で出ている）。
 					-->
-					<tr style="--hue:{REGION_HUES[p.region] ?? 210};">
+					<tr style={tint(p.region)}>
 						<th scope="row">
 							<a href={resolve('/prefectures/[code]', { code: p.code })}>{p.name}</a>
 						</th>
@@ -211,79 +148,79 @@
 		font-weight: 700;
 	}
 
-	.map {
-		/* **狭い画面でも横に溢れない。** viewBox の比率のまま縮む。 */
-		width: 100%;
-		max-width: 34rem;
+	/*
+	**狭い画面では横に流す。**
+
+	絵は 1536px 幅の画像で、縮めると県名も同じ比率で縮む。
+	画面幅に合わせると、390px の端末で文字が 5px になり、
+	読むことも押すこともできなくなる（実測）。
+
+	下限を 62rem に取ると文字は約 13px、当たり判定は約 32x20px になる。
+	その幅に満たない画面では横スクロールになる。
+	**縮めて読めなくするより、はみ出させて読めるほうを取る。**
+	*/
+	.viewport {
 		margin-top: var(--space-4);
+		overflow-x: auto;
+		border: var(--line);
+		border-radius: var(--radius);
+		background: #fff;
+	}
+
+	.stage {
+		min-width: 62rem;
 	}
 
 	svg {
 		display: block;
 		width: 100%;
 		height: auto;
-		overflow: visible;
 	}
 
-	.box,
-	.tail {
-		/* 未訪問。地方の色を薄く敷き、輪郭は墨で締める。
-		   **未訪問でも地方の色を薄く付ける。** 塗られていない状態でも
-		   「どの地方の県か」が見え、まとまりとして地図が読める。 */
-		fill: hsl(var(--hue) 38% 84%);
-		stroke: var(--color-border);
-		stroke-width: 1.4;
-		transition: fill 0.15s;
+	/* 触れていないときは絵をそのまま見せる。 */
+	.pref rect {
+		fill: transparent;
+		stroke: transparent;
 	}
 
-	/* **白文字とのコントラストを確保するため明度を下げている。**
-	   色相によっては 55% だと 4.5:1 を下回る。 */
-	.visited .box,
-	.visited .tail {
-		fill: hsl(var(--hue) 52% 30%);
+	/*
+	訪問済み。**県の形ではなく県名の枠に印を付ける。**
+	絵は 1 枚の画像で県ごとの領域を持たないため、これが限界である。
+
+	**濃く塗り潰さない。** 絵の県名は黒で描かれており、上に濃い色を重ねると
+	名前が読めなくなる（実際にそうなった）。薄い塗りと太い輪郭で示す。
+	*/
+	.visited rect {
+		fill: rgb(31 107 82 / 20%);
+		stroke: #1f6b52;
+		stroke-width: 3;
 	}
 
-	.name {
-		font-weight: 700;
-		fill: var(--color-text);
-		/* 文字の上でも押せる。枠と別に当たり判定を作らない。 */
-		pointer-events: none;
-	}
-
-	.visited .name {
-		fill: #fff;
-	}
-
+	/* **色だけに頼らないための印。** 白い縁を付けて、
+	   下がどの地方の色でも見えるようにする。 */
 	.dot {
-		fill: #fff;
+		fill: #1f6b52;
+		stroke: #fff;
+		stroke-width: 1.5;
 		pointer-events: none;
 	}
 
-	.tile:hover .box,
-	.tile:hover .tail {
-		fill: hsl(var(--hue) 52% 44%);
-	}
-
-	.tile:hover .name {
-		fill: #fff;
+	.pref:hover rect {
+		fill: rgb(173 59 28 / 22%);
+		stroke: #ad3b1c;
+		stroke-width: 3;
 	}
 
 	/* **フォーカスが見えること。** SVG では outline の描かれ方が
 	   ブラウザで揃わないため、輪郭線そのものを太くする。 */
-	.tile:focus {
+	.pref:focus {
 		outline: none;
 	}
 
-	.tile:focus-visible .box {
+	.pref:focus-visible rect {
+		fill: rgb(173 59 28 / 30%);
 		stroke: var(--color-text);
-		stroke-width: 3.5;
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.box,
-		.tail {
-			transition: none;
-		}
+		stroke-width: 4;
 	}
 
 	button {
@@ -310,25 +247,22 @@
 	}
 
 	/*
-	 * 行の背景。**色相だけを行から受け取り、明度と彩度はここで決める。**
-	 *
-	 * 行ごとに出来上がった色を渡すと、暗いテーマに切り替えたときに
-	 * 追従できない。色相はデータ（地方）で決まり、明るさは見た目の都合で
-	 * 決まるので、決める場所を分ける。
-	 *
-	 * 明度 95% は本文の色（#1c2b2d）に対してどの色相でも 15:1 以上あり、
-	 * 4.5:1 の基準を大きく超える。
-	 */
+	行の背景。**色相と彩度は地図の凡例から来た値、明度はここで決める。**
+
+	明度 88% は、ページの地色（#f6ecd8）との差が十分あり
+	（最も近い北海道でも 35）、地方どうしも見分けられ（最小 34）、
+	本文の色に対して 9.7:1 ある。95% では近畿と九州沖縄が地色に埋もれた。
+	*/
 	tbody tr {
-		background: hsl(var(--hue) 55% 95%);
+		background: hsl(var(--hue) var(--sat) 88%);
 	}
 
-	/* **暗いテーマでは明度を反転する。** 同じ 95% を敷くと、
+	/* **暗いテーマでは明度を下げる。** 同じ 88% を敷くと、
 	   明るい地に明るい文字（#f6ecd8）が乗って読めなくなる。
-	   18% はどの色相でも 9:1 以上ある。 */
+	   18% で本文に対して 7.1:1 ある。 */
 	@media (prefers-color-scheme: dark) {
 		tbody tr {
-			background: hsl(var(--hue) 30% 18%);
+			background: hsl(var(--hue) var(--sat) 18%);
 		}
 	}
 
@@ -359,5 +293,20 @@
 
 	tbody th {
 		font-weight: 600;
+	}
+
+	/*
+	表の中のリンクは、色ではなく下線で示す。
+
+	**主色は行の色に対してコントラストが足りない。** 実測で
+	明るいテーマの近畿の行が 4.08:1、暗いテーマの中部の行が 3.35:1 で、
+	どちらも 4.5:1 を下回っていた。行に色を敷いた副作用である。
+
+	本文と同じ色にすれば 9.7:1 / 7.1:1 になる。リンクであることは
+	下線で分かるので、**色を失っても何も伝わらなくならない。**
+	*/
+	tbody th a {
+		color: inherit;
+		text-decoration: underline;
 	}
 </style>
