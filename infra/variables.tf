@@ -238,20 +238,26 @@ variable "db_max_connections_headroom" {
   default     = 25
 }
 
-variable "imageworker_concurrency" {
+variable "imageworker_max_concurrency" {
   description = <<-EOT
-    画像処理 Lambda の同時実行数の上限。
+    画像処理 Lambda が同時に動きうる数。**接続数の検算に使う。**
 
-    **上限を置かないと、アカウントの上限（既定1000）まで増えうる。**
-    Lambda はそれぞれ RDS への接続を持つため、そのまま接続の枯渇になる。
-    署名付き URL の発行には利用者ごとの上限を設けたが、
+    Lambda はそれぞれ RDS への接続を持つため、同時実行の数がそのまま
+    接続数に効く。署名付き URL の発行には利用者ごとの上限を設けたが、
     利用者が増えれば全体としては歯止めにならない。
 
-    **接続数の検算に入っている。** 変えるときは rds.tf の precondition
-    が通ることを確かめること。
+    **予約（reserved_concurrent_executions）では抑えていない。**
+    このアカウントの同時実行の上限が 10 で、AWS は「予約していない枠を
+    10 未満にできない」ため、1つも予約できないためである。
+    上限そのものが歯止めになっている。
+
+        aws lambda get-account-settings --query AccountLimit
+
+    **上限が引き上げられたら、この値を上げたうえで予約を入れ直すこと。**
+    1000 になった時点で歯止めが消え、接続の枯渇が現実的になる。
   EOT
   type        = number
-  default     = 5
+  default     = 10
 }
 
 variable "imageworker_db_connections" {
