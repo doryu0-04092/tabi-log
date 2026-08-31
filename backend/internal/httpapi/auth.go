@@ -173,7 +173,12 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// アカウントだけだと、**攻撃者が他人のアドレスを送り続けることで
 	// その利用者をログインできなくできる**（サービス拒否になる）。
 	// 両方を独立に数えることで、どちらの形も抑える。
-	if !h.byIP.Allow("login:"+h.clientIP(r)) || !h.byEmail.Allow("login:"+email) {
+	//
+	// **鍵は小文字に揃える。** users.email の照合順序は utf8mb4_0900_ai_ci で、
+	// DB は大文字小文字を区別しない。生のまま数えると、
+	// User@example.com と user@example.com が別々に数えられ、
+	// **大文字小文字を変えるだけで試行回数を何倍にもできる。**
+	if !h.byIP.Allow("login:"+h.clientIP(r)) || !h.byEmail.Allow("login:"+strings.ToLower(email)) {
 		writeError(w, r, http.StatusTooManyRequests, "rate_limited", "試行回数が多すぎます。しばらく待ってからお試しください")
 		return
 	}

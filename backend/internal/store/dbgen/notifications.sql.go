@@ -87,6 +87,28 @@ func (q *Queries) DeleteLikeNotification(ctx context.Context, arg DeleteLikeNoti
 	return err
 }
 
+const deleteNotificationsInvolvingUser = `-- name: DeleteNotificationsInvolvingUser :exec
+DELETE FROM notifications
+WHERE user_id = ? OR actor_id = ?
+`
+
+type DeleteNotificationsInvolvingUserParams struct {
+	UserID  uint64
+	ActorID uint64
+}
+
+// 退会したときに、その人が関わる通知を両方向とも消す。
+//
+// **外部キーの ON DELETE CASCADE は効かない。** 退会は users 行を
+// 残す論理削除であり、行が消えないため連鎖しない。
+//
+// actor_id 側を消さないと、相手の一覧に「退会したユーザーがいいね
+// しました」が残り続ける。リンク先は 404 になる。
+func (q *Queries) DeleteNotificationsInvolvingUser(ctx context.Context, arg DeleteNotificationsInvolvingUserParams) error {
+	_, err := q.db.ExecContext(ctx, deleteNotificationsInvolvingUser, arg.UserID, arg.ActorID)
+	return err
+}
+
 const listNotificationsBefore = `-- name: ListNotificationsBefore :many
 SELECT
     n.id, n.type, n.post_id, n.comment_id, n.read_at, n.created_at,

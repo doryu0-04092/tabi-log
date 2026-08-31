@@ -54,6 +54,14 @@ resource "aws_lambda_function" "imageworker" {
   memory_size = 1024
   timeout     = 60
 
+  # **同時実行数に上限を置く。** 置かないとアカウントの上限まで増え、
+  # そのぶん RDS への接続も増える。署名付き URL の発行には上限を
+  # 設けたが、それは1利用者あたりであり、全体の歯止めにはならない。
+  #
+  # 予約した数はアカウントの共有枠から差し引かれる。
+  # 他に Lambda が無いため影響しない。
+  reserved_concurrent_executions = var.imageworker_concurrency
+
   # **VPC の中に置く。** データベースを更新する必要があるためである。
   # その代償として、S3 へはゲートウェイエンドポイント経由で出る
   # （network.tf。これが無いと S3 に到達できず毎回タイムアウトする）。
@@ -81,8 +89,15 @@ resource "aws_lambda_function" "imageworker" {
       # Terraform の state に平文で入るのと同じ性質の割り切りである。
       DB_PASSWORD = random_password.db.result
 
-      # 画像処理は JWT を発行しないが、config.Load() が必須として見る。
-      JWT_SECRET = random_password.jwt.result
+      # **JWT_SECRET は渡さない。** 画像処理はトークンを発行も検証も
+      # しない。config.LoadFor(RoleImageWorker) が必須から外している。
+      # 使わない秘密を配れば、読める場所がその分だけ増える。
+
+      # **接続プールを絞る。** 既定の 25 は API サーバー向けの値で、
+      # 画像処理は1回の呼び出しで数回しか問い合わせない。同時実行の
+      # ぶんだけ倍になるため、絞らないと RDS の接続上限を
+      # Lambda 側だけで使い切りうる。
+      DB_MAX_OPEN_CONNS = tostring(var.imageworker_db_connections)
 
       STORAGE_S3_BUCKET = aws_s3_bucket.images.id
       STORAGE_S3_REGION = var.region

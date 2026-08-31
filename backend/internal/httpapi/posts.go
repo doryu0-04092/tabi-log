@@ -87,6 +87,14 @@ type postHandler struct {
 	now     func() time.Time
 	// createLimit は投稿の作成にかける上限。nil なら数えない。
 	createLimit *writeLimiter
+
+	// uploadLimit は署名付き URL の発行回数。**投稿の上限では止まらない。**
+	// 発行するだけで S3 の PUT・Lambda の起動・行の追加が起きる。
+	uploadLimit *writeLimiter
+
+	// deletions は消し損ねた S3 のオブジェクトの控え先。
+	// **控えないと、行が消えたあとの削除失敗を誰も拾えない。**
+	deletions DeletionQueue
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +105,16 @@ func (h *postHandler) PresignMediaUpload(w http.ResponseWriter, r *http.Request)
 	userID, ok := UserIDFrom(r.Context())
 	if !ok {
 		writeError(w, r, http.StatusUnauthorized, "unauthenticated", "ログインが必要です")
+		return
+	}
+
+	// **投稿の上限では止まらない経路である。** 発行1回ごとに
+	// S3 の PUT・Lambda の起動・行の追加が起きるため、投稿を
+	// 1件も作らずに資源を消費し続けられる。
+	//
+	// 検証より先に数える。**通らないリクエストでも回数を使わせる。**
+	// 後ろに置くと、わざと不正な値を送ることで無制限に試せる。
+	if !h.uploadLimit.allow(w, r, userID) {
 		return
 	}
 
@@ -326,15 +344,12 @@ func (h *postHandler) DeletePost(w http.ResponseWriter, r *http.Request, postID 
 	//
 	// データベース上は既に消えており、利用者から見て投稿は消えている。
 	// ここで 500 を返すと「削除できていない」と誤解させる。
-	// 残ったオブジェクトはライフサイクルルールで期限削除される。
-	if err := h.storage.Delete(r.Context(), keys...); err != nil {
-		h.logger.ErrorContext(r.Context(), "投稿は削除したがS3のオブジェクトを削除できなかった",
-			slog.String("request_id", RequestIDFrom(r.Context())),
-			slog.Uint64("post_id", uint64(postID)),
-			slog.Int("key_count", len(keys)),
-			slog.String("error", err.Error()),
-		)
-	}
+	//
+	// **消せなかったものは控える。** ライフサイクルは拾ってくれない。
+	// 原本には state=kept が付いていて対象外、変換物には
+	// ライフサイクル自体が無い（消すと表示中の投稿が壊れる）。
+	deleteObjects(r, h.storage, h.deletions, h.logger,
+		"投稿は削除したがS3のオブジェクトを削除できなかった", keys)
 
 	w.WriteHeader(http.StatusNoContent)
 }

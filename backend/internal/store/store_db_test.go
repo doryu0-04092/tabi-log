@@ -445,3 +445,45 @@ func Test他人あての通知は既読にできない(t *testing.T) {
 		t.Error("通知が既読になっている")
 	}
 }
+
+/*
+退会すると、その人が関わる通知は両方向とも消える。
+
+**外部キーの ON DELETE CASCADE は効かない。** 退会は users 行を残す
+論理削除であり、行が消えないため連鎖しない。
+
+起こした側（actor_id）を消し忘れると、相手の一覧に
+「退会したユーザーがいいねしました」が残り続ける。リンク先は 404 になる。
+**残っても例外は出ない。** 気づけるのは相手だけである。
+
+`docs/audit-2026-08-31.md` M3。
+*/
+func Test退会すると起こした通知も相手の一覧から消える(t *testing.T) {
+	db := newDB(t)
+	author := createUser(t, db, "notified")
+	leaver := createUser(t, db, "leaver3")
+	postID := createPost(t, db, author, "通知される投稿")
+
+	// フォローの通知は投稿に紐づかないため、投稿を消しても連鎖しない。
+	// **actor_id 側を消さない限り残る。**
+	if err := NewFollowStore(db).Follow(t.Context(), leaver, author); err != nil {
+		t.Fatalf("フォローできない: %v", err)
+	}
+	if err := NewReactionStore(db).Like(t.Context(), leaver, postID); err != nil {
+		t.Fatalf("いいねできない: %v", err)
+	}
+	if n := countRows(t, db, "notifications", "user_id = ? AND actor_id = ?", author, leaver); n != 2 {
+		t.Fatalf("前提が崩れている。通知が %d件しか無い（2件のはず）", n)
+	}
+
+	if _, err := NewAccountStore(db).DeleteAccount(t.Context(), leaver, time.Now()); err != nil {
+		t.Fatalf("退会できない: %v", err)
+	}
+
+	if n := countRows(t, db, "notifications", "actor_id = ?", leaver); n != 0 {
+		t.Errorf("退会者が起こした通知が %d件残っている。相手の一覧に出続ける", n)
+	}
+	if n := countRows(t, db, "notifications", "user_id = ?", leaver); n != 0 {
+		t.Errorf("退会者宛の通知が %d件残っている", n)
+	}
+}

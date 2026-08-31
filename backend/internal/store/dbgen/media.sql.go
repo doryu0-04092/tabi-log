@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+	"time"
 )
 
 const attachMediaToPost = `-- name: AttachMediaToPost :execresult
@@ -87,6 +88,42 @@ func (q *Queries) CreatePendingMedia(ctx context.Context, arg CreatePendingMedia
 	return q.db.ExecContext(ctx, createPendingMedia, arg.UserID, arg.S3Key)
 }
 
+const deleteMediaByID = `-- name: DeleteMediaByID :exec
+DELETE FROM media
+WHERE id = ?
+`
+
+// media_variants は外部キーの連鎖で消える。
+func (q *Queries) DeleteMediaByID(ctx context.Context, id uint64) error {
+	_, err := q.db.ExecContext(ctx, deleteMediaByID, id)
+	return err
+}
+
+const deletePendingObjectDeletion = `-- name: DeletePendingObjectDeletion :exec
+DELETE FROM pending_object_deletions
+WHERE id = ?
+`
+
+func (q *Queries) DeletePendingObjectDeletion(ctx context.Context, id uint64) error {
+	_, err := q.db.ExecContext(ctx, deletePendingObjectDeletion, id)
+	return err
+}
+
+const enqueueObjectDeletion = `-- name: EnqueueObjectDeletion :exec
+INSERT INTO pending_object_deletions (s3_key)
+VALUES (?)
+ON DUPLICATE KEY UPDATE attempts = attempts + 1
+`
+
+// 消すべき S3 のオブジェクトを控える。
+//
+// **消す前に入れる。** 消してから入れるのでは、その間に落ちた場合に
+// 鍵を辿れなくなる（それが避けたい状態そのものである）。
+func (q *Queries) EnqueueObjectDeletion(ctx context.Context, s3Key string) error {
+	_, err := q.db.ExecContext(ctx, enqueueObjectDeletion, s3Key)
+	return err
+}
+
 const getMediaByID = `-- name: GetMediaByID :one
 SELECT id, user_id, post_id, s3_key, mime, width, height, bytes, sort_order, status
 FROM media
@@ -159,6 +196,17 @@ func (q *Queries) GetMediaByS3Key(ctx context.Context, s3Key string) (GetMediaBy
 		&i.Status,
 	)
 	return i, err
+}
+
+const incrementPendingObjectDeletionAttempts = `-- name: IncrementPendingObjectDeletionAttempts :exec
+UPDATE pending_object_deletions
+SET attempts = attempts + 1
+WHERE id = ?
+`
+
+func (q *Queries) IncrementPendingObjectDeletionAttempts(ctx context.Context, id uint64) error {
+	_, err := q.db.ExecContext(ctx, incrementPendingObjectDeletionAttempts, id)
+	return err
 }
 
 const listMediaByPostID = `-- name: ListMediaByPostID :many
@@ -283,6 +331,122 @@ type ListMediaKeysByPostIDParams struct {
 // 外部キーの連鎖削除では S3 上の実体は消えない。
 func (q *Queries) ListMediaKeysByPostID(ctx context.Context, arg ListMediaKeysByPostIDParams) ([]string, error) {
 	rows, err := q.db.QueryContext(ctx, listMediaKeysByPostID, arg.PostID, arg.PostID_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var s3_key string
+		if err := rows.Scan(&s3_key); err != nil {
+			return nil, err
+		}
+		items = append(items, s3_key)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrphanMedia = `-- name: ListOrphanMedia :many
+SELECT m.id, m.s3_key
+FROM media m
+         LEFT JOIN users u ON u.avatar_media_id = m.id
+WHERE m.post_id IS NULL
+  AND u.id IS NULL
+  AND m.created_at < ?
+ORDER BY m.id
+LIMIT ?
+`
+
+type ListOrphanMediaParams struct {
+	CreatedAt time.Time
+	Limit     int32
+}
+
+type ListOrphanMediaRow struct {
+	ID    uint64
+	S3Key string
+}
+
+// どこからも参照されていない画像。
+//
+// 投稿にも紐づかず、アバターにも使われていないものが対象。
+// **status では絞らない。** processed まで進んだが投稿されなかった
+// ものにも変換物があり、そちらが消えずに残るためである。
+//
+// LIMIT で区切るのは、溜まっていた場合に1回の掃除が長時間の
+// トランザクションにならないようにするため。
+func (q *Queries) ListOrphanMedia(ctx context.Context, arg ListOrphanMediaParams) ([]ListOrphanMediaRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOrphanMedia, arg.CreatedAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOrphanMediaRow{}
+	for rows.Next() {
+		var i ListOrphanMediaRow
+		if err := rows.Scan(&i.ID, &i.S3Key); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingObjectDeletions = `-- name: ListPendingObjectDeletions :many
+SELECT id, s3_key
+FROM pending_object_deletions
+ORDER BY id
+LIMIT ?
+`
+
+type ListPendingObjectDeletionsRow struct {
+	ID    uint64
+	S3Key string
+}
+
+func (q *Queries) ListPendingObjectDeletions(ctx context.Context, limit int32) ([]ListPendingObjectDeletionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingObjectDeletions, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPendingObjectDeletionsRow{}
+	for rows.Next() {
+		var i ListPendingObjectDeletionsRow
+		if err := rows.Scan(&i.ID, &i.S3Key); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listVariantKeysByMediaID = `-- name: ListVariantKeysByMediaID :many
+SELECT s3_key
+FROM media_variants
+WHERE media_id = ?
+`
+
+func (q *Queries) ListVariantKeysByMediaID(ctx context.Context, mediaID uint64) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listVariantKeysByMediaID, mediaID)
 	if err != nil {
 		return nil, err
 	}
