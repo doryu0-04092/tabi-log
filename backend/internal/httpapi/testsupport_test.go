@@ -261,11 +261,13 @@ func cookieByName(rec *httptest.ResponseRecorder, name string) *http.Cookie {
 // 使わないメソッドは「呼ばれたら失敗」にしていない。呼ばれても
 // 素直な零値を返すほうが、テストの意図（何を確かめているか）が読みやすい。
 type stubPostRepo struct {
-	owner      uint64
-	ownerErr   error
-	posts      []domain.Post
-	nextCursor uint64
-	listErr    error
+	originalKeys    []string
+	originalKeysErr error
+	owner           uint64
+	ownerErr        error
+	posts           []domain.Post
+	nextCursor      uint64
+	listErr         error
 
 	// フォロー中フィードは閲覧者ごとに違う。誰の分を引いたかを記録する。
 	lastViewerID uint64
@@ -297,6 +299,19 @@ func (s *stubPostRepo) PostOwner(context.Context, uint64) (uint64, error) {
 }
 func (s *stubPostRepo) FindMediaByID(context.Context, uint64) (store.MediaRecord, error) {
 	return store.MediaRecord{}, nil
+}
+
+// originalKeys は ListOriginalKeys が返すキー。既定で1件返す。
+// **既定を空にしない。** 空だと保持印の呼び出しが起きず、
+// 「呼ばれること」を見るテストが黙って通ってしまう。
+func (s *stubPostRepo) ListOriginalKeys(context.Context, uint64) ([]string, error) {
+	if s.originalKeysErr != nil {
+		return nil, s.originalKeysErr
+	}
+	if s.originalKeys == nil {
+		return []string{"originals/1/a.jpg"}, nil
+	}
+	return s.originalKeys, nil
 }
 func (s *stubPostRepo) GetPost(context.Context, uint64, storage.URLSigner, time.Duration) (domain.Post, error) {
 	return domain.Post{}, nil
@@ -612,8 +627,11 @@ var errStorageForTest = errors.New("保存先で失敗した")
 //
 // 退会で **S3 のオブジェクトを明示的に消しているか** を確かめるために使う。
 type stubStorage struct {
-	deleted   []string
-	deleteErr error
+	// keptKeys は MarkKept に渡されたキー。呼ばれたことの検証に使う。
+	keptKeys    []string
+	markKeptErr error
+	deleted     []string
+	deleteErr   error
 }
 
 func (s *stubStorage) DisplayURL(_ context.Context, key string, _ time.Duration) (string, error) {
@@ -622,6 +640,16 @@ func (s *stubStorage) DisplayURL(_ context.Context, key string, _ time.Duration)
 
 func (s *stubStorage) PresignPut(context.Context, string, string, int64, time.Duration) (string, error) {
 	return "https://example.test/upload", nil
+}
+
+// MarkKept は「投稿に使われた」印を記録する。**呼ばれたことを検証できるようにする。**
+// 印が付かないと原本が期限で消えるため、呼び忘れはテストで捕まえたい。
+func (s *stubStorage) MarkKept(_ context.Context, keys ...string) error {
+	s.keptKeys = append(s.keptKeys, keys...)
+	if s.markKeptErr != nil {
+		return s.markKeptErr
+	}
+	return nil
 }
 
 func (s *stubStorage) Delete(_ context.Context, keys ...string) error {

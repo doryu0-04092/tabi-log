@@ -144,6 +144,25 @@ AWS 上の環境は使うたびに作って壊す運用なので、上がって�
 
 ---
 
+## 3-B. 原本の保持印（H1 の確認）
+
+**アプライしないと確認できない。** LocalStack はタグの検証を本番ほど厳密に行わず、
+**署名にタグを含めた PUT が通るかは AWS でしか分からない。**
+
+| # | 確認すること | 手順 | 期待 |
+|---|---|---|---|
+| 3B-1 | タグを付けて送れる | 画面から画像を1枚アップロードする | **成功する**。403 なら `s3:PutObjectTagging` が足りていないか CORS で `x-amz-tagging` を許可し忘れている |
+| 3B-2 | 送信直後は pending | `aws s3api get-object-tagging --bucket <images> --key originals/...` | `state=pending` |
+| 3B-3 | 確定すると kept になる | その画像で投稿を作り、同じキーをもう一度引く | **`state=kept`**。pending のままなら 7 日後に原本が消える |
+| 3B-4 | 投稿しなければ pending のまま | アップロードだけして投稿を作らない | `state=pending` のまま |
+| 3B-5 | ライフサイクルの条件 | `aws s3api get-bucket-lifecycle-configuration --bucket <images>` | `And` に `Prefix=originals/` と `Tag state=pending` の両方がある |
+
+> **3B-1 を最初に踏むこと。** ここが落ちると画像を使う確認が全部できない。
+> **タグの付け忘れは静かに壊れない**（署名不一致で拒否される）が、
+> **kept への変更漏れは静かに壊れる** — 気づくのは 7 日後である。3B-3 は省略しない。
+
+---
+
 ## 4. CD
 
 **一度も実行していない場合、ここが最大の未検証項目になる。**

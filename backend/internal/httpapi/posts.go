@@ -52,6 +52,10 @@ type PostRepository interface {
 	DeletePost(ctx context.Context, postID, userID uint64) ([]string, error)
 	PostOwner(ctx context.Context, postID uint64) (uint64, error)
 	FindMediaByID(ctx context.Context, mediaID uint64) (store.MediaRecord, error)
+
+	// ListOriginalKeys は投稿に紐づいた原本のキーを返す。
+	// **保持印を付ける対象を知るために使う。**
+	ListOriginalKeys(ctx context.Context, postID uint64) ([]string, error)
 	GetPost(ctx context.Context, postID uint64, signer storage.URLSigner, ttl time.Duration) (domain.Post, error)
 	ListFeed(ctx context.Context, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
 	ListUserPosts(ctx context.Context, userID, cursorID uint64, limit int, signer storage.URLSigner, ttl time.Duration) ([]domain.Post, uint64, error)
@@ -64,6 +68,11 @@ type PostRepository interface {
 type ObjectStorage interface {
 	storage.URLSigner
 	PresignPut(ctx context.Context, key, contentType string, contentLength int64, ttl time.Duration) (string, error)
+
+	// MarkKept は投稿に使われた原本を期限削除の対象から外す。
+	// **これを呼ばないと、原本が7日で消えて別解像度を作れなくなる。**
+	MarkKept(ctx context.Context, keys ...string) error
+
 	Delete(ctx context.Context, keys ...string) error
 }
 
@@ -207,7 +216,33 @@ func (h *postHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.markOriginalsKept(r, postID)
+
 	h.respondWithPost(w, r, postID, http.StatusCreated)
+}
+
+// markOriginalsKept は投稿に使われた原本を、期限削除の対象から外す。
+//
+// **投稿の作成そのものは失敗させない。** 印が付かなくても投稿は成立しており、
+// 利用者から見て壊れてはいない。ここで 500 を返すと、
+// 「投稿はできているのにエラーが出る」という最も分かりにくい形になる。
+//
+// **ただし黙って落とさない。** 印が付かないと原本が期限で消え、
+// 別解像度を後から作れなくなる。ERROR で残して気づけるようにする。
+func (h *postHandler) markOriginalsKept(r *http.Request, postID uint64) {
+	keys, err := h.repo.ListOriginalKeys(r.Context(), postID)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "原本の保持印を付ける対象を引けなかった",
+			"post_id", postID, "error", err)
+		return
+	}
+	if len(keys) == 0 {
+		return
+	}
+	if err := h.storage.MarkKept(r.Context(), keys...); err != nil {
+		h.logger.ErrorContext(r.Context(), "原本の保持印を付けられなかった",
+			"post_id", postID, "keys", strings.Join(keys, ","), "error", err)
+	}
 }
 
 // ---------------------------------------------------------------------------

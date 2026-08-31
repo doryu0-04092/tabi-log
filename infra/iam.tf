@@ -60,11 +60,17 @@ resource "aws_iam_role" "task" {
   assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
 }
 
-# アプリケーションが S3 に対して行うのは3つだけである。
+# アプリケーションが S3 に対して行うのは4つだけである。
 #
 # - 署名付き PUT の発行（PutObject）
 # - 表示用の署名付き URL の発行（GetObject）
 # - 削除（投稿の削除・退会）
+# - 原本の保持印（PutObjectTagging）
+#
+# **PutObjectTagging は2か所で要る。** 投稿の確定時にタグを
+# state=kept へ変えるときと、署名付き PUT そのものである。
+# 署名にタグを含めているため、PUT の実行者（＝署名した
+# このロール）にタグ付けの権限が無いと 403 で弾かれる。
 #
 # **バケットの一覧や設定の変更は要らない。** 与えない。
 data "aws_iam_policy_document" "task_s3" {
@@ -73,6 +79,7 @@ data "aws_iam_policy_document" "task_s3" {
     actions = [
       "s3:GetObject",
       "s3:PutObject",
+      "s3:PutObjectTagging",
       "s3:DeleteObject",
     ]
     resources = ["${aws_s3_bucket.images.arn}/*"]
