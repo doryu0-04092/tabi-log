@@ -61,36 +61,27 @@
 		伝える役はリンクの aria-label と表が担う。
 	-->
 	<div class="viewport">
-		<div class="stage">
-			<svg viewBox="0 0 {MAP_WIDTH} {MAP_HEIGHT}" role="group" aria-label="都道府県ごとの投稿">
-				<image
-					href={mapImage}
-					x="0"
-					y="0"
-					width={MAP_WIDTH}
-					height={MAP_HEIGHT}
-					aria-hidden="true"
-				/>
-				{#each hits as hit (hit.code)}
-					{@const p = hit.prefecture}
-					<a
-						class="pref"
-						class:visited={hit.visited}
-						href={resolve('/prefectures/[code]', { code: p.code })}
-						aria-label="{p.name} {p.postCount}件{hit.visited ? '（訪問済み）' : '（未訪問）'}"
-					>
-						<rect x={hit.x} y={hit.y} width={hit.w} height={hit.h} rx="6" />
-						<!--
+		<svg viewBox="0 0 {MAP_WIDTH} {MAP_HEIGHT}" role="group" aria-label="都道府県ごとの投稿">
+			<image href={mapImage} x="0" y="0" width={MAP_WIDTH} height={MAP_HEIGHT} aria-hidden="true" />
+			{#each hits as hit (hit.code)}
+				{@const p = hit.prefecture}
+				<a
+					class="pref"
+					class:visited={hit.visited}
+					href={resolve('/prefectures/[code]', { code: p.code })}
+					aria-label="{p.name} {p.postCount}件{hit.visited ? '（訪問済み）' : '（未訪問）'}"
+				>
+					<rect x={hit.x} y={hit.y} width={hit.w} height={hit.h} rx="6" />
+					<!--
 							**色の違いだけで訪問済みを示さない。** 塗りに加えて
 							右上に印を打ち、読み上げのラベルにも語で入れる。
 						-->
-						{#if hit.visited}
-							<circle class="dot" cx={hit.x + hit.w - 5} cy={hit.y + 5} r="4" />
-						{/if}
-					</a>
-				{/each}
-			</svg>
-		</div>
+					{#if hit.visited}
+						<circle class="dot" cx={hit.x + hit.w - 5} cy={hit.y + 5} r="4" />
+					{/if}
+				</a>
+			{/each}
+		</svg>
 	</div>
 
 	<button type="button" onclick={() => (showTable = !showTable)} aria-expanded={showTable}>
@@ -149,33 +140,55 @@
 	}
 
 	/*
-	**狭い画面では横に流す。**
+	**本文の幅から出して、画面いっぱいに見せる。**
 
-	絵は 1536px 幅の画像で、縮めると県名も同じ比率で縮む。
-	画面幅に合わせると、390px の端末で文字が 5px になり、
-	読むことも押すこともできなくなる（実測）。
+	main は読みやすさのために `--measure`（40rem）に絞ってある。
+	そのままだと地図は 608px しかもらえず、1920px の画面でも
+	横スクロールになっていた。**本文の幅は文章のためのもので、
+	図にまで効かせる理由が無い。**
 
-	下限を 62rem に取ると文字は約 13px、当たり判定は約 32x20px になる。
-	その幅に満たない画面では横スクロールになる。
-	**縮めて読めなくするより、はみ出させて読めるほうを取る。**
+	上限 80rem（1280px）で、県名は約 16px、当たり判定は約 38x23px。
+	画面がそれより狭ければ画面幅まで縮む。**横スクロールは出ない。**
+
+	100vw から引く 4rem は、左右のページ余白（--space-4 ×2）と
+	縦スクロールバーのぶんを合わせた見込みである。
+	**足りないと、ページ全体が横に溢れる。**
 	*/
 	.viewport {
+		--map-width: min(80rem, 100vw - 4rem);
+		width: var(--map-width);
 		margin-top: var(--space-4);
-		overflow-x: auto;
-		border: var(--line);
-		border-radius: var(--radius);
-		background: #fff;
+		/* 本文の中央を基準に、左右へはみ出させる。 */
+		margin-inline: calc((100% - var(--map-width)) / 2);
 	}
 
-	.stage {
-		min-width: 62rem;
-	}
-
+	/*
+	**地の色を敷かない。** 絵の外側は透明にしてあるので、
+	ページの地色がそのまま透ける。白い箱が浮いて見えなくなる。
+	*/
 	svg {
 		display: block;
 		width: 100%;
 		height: auto;
 	}
+
+	/*
+	**この地図は明るいテーマだけを基準に作っている。**
+
+	絵の中の県名は黒で描かれており、外側は透明にしてある。
+	暗いテーマでは凡例と、塗りから離れた一部の県名が読みにくくなる。
+
+	そうと知って割り切っている。試した案と、やめた理由は次のとおり。
+
+	  - 全体を `invert(1)`           → 緑が紫になるなど色相が壊れ、表の色と食い違う
+	  - `invert(1) hue-rotate(180deg)` → 色相は保てるが塗りまで暗くなり、かえって見づらい
+	  - 黒い画素だけを白にする         → 凡例の文字が色見本のすぐ横にあり、
+	                                    地図上の県名と機械的に区別できなかった
+	  - 暗いテーマだけ明るい下地を敷く → 読めるが、白い箱が戻る
+
+	**同じ内容は表でも出しているので、読めなくても情報は落ちない。**
+	暗いテーマまで作り込むなら、絵そのものを暗いテーマ用に作り直すのが確実である。
+	*/
 
 	/* 触れていないときは絵をそのまま見せる。 */
 	.pref rect {
