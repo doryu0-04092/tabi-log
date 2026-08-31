@@ -148,7 +148,25 @@
 			「いいね 12件」と読み上げられる。
 		-->
 		<LikeButton postId={post.id} liked={post.isLiked} count={post.likeCount} />
-		<span><span aria-hidden="true">💬</span> コメント {post.commentCount}件</span>
+		<!--
+			**いいねと並ぶ以上、コメントも押せるようにする。**
+			片方だけが押せると、押せないほうも押せると思って押される。
+
+			飛び先は写真をクリックしたときと同じ詳細画面。ただし
+			コメント欄まで送る（一覧では読む・書く操作がそこにある）。
+
+			詳細画面では自分自身へのリンクになるため、リンクにしない。
+		-->
+		{#if linkToDetail}
+			<a
+				class="comments"
+				href="{resolve('/posts/[postId]', { postId: String(post.id) })}#comments-heading"
+			>
+				<span aria-hidden="true">💬</span> コメント {post.commentCount}件
+			</a>
+		{:else}
+			<span><span aria-hidden="true">💬</span> コメント {post.commentCount}件</span>
+		{/if}
 		{#if linkToDetail}
 			<a href={resolve('/posts/[postId]', { postId: String(post.id) })}>詳細を見る</a>
 		{/if}
@@ -284,6 +302,18 @@
 	.tags li {
 		color: var(--color-text-muted);
 		font-size: 0.875rem;
+	}
+
+	/* コメントへのリンク。**いいねのボタンと見た目を揃える。**
+	   片方だけ下線が付いていると、別の種類の操作に見える。 */
+	.comments {
+		color: inherit;
+		text-decoration: none;
+	}
+
+	.comments:hover,
+	.comments:focus-visible {
+		text-decoration: underline;
 	}
 
 	footer {

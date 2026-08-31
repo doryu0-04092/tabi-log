@@ -146,3 +146,48 @@ test.describe('投稿', () => {
 		expect(results.violations).toEqual([]);
 	});
 });
+
+/*
+フィードのコメント数から、コメント欄へ行けること。
+
+**いいねと並ぶ以上、コメントも押せる必要がある。** 片方だけがボタンだと、
+押せないほうも押せると思って押される。
+
+2026-08-31 に指摘を受けて足した。それまでコメント数はただの文字で、
+フィードからコメントへ辿る手段が「詳細を見る」しか無かった。
+*/
+test('フィードのコメント数からコメント欄へ行ける', async ({ page }) => {
+	await signup(page, { displayName: 'コメント導線' });
+	const body = `コメント導線の確認 ${Date.now()}`;
+	await createPost(page, { body, prefecture: '香川県' });
+
+	await page.goto('/');
+	const card = page.getByRole('article').filter({ hasText: body });
+
+	// **いいねと同じ場所にある。** どちらも押せることを確かめる。
+	await expect(card.getByRole('button', { name: /いいね/ })).toBeVisible();
+	// **端をそろえた正規表現で当てる。** /コメント/ だけだと、
+	// 表示名に「コメント」を含む利用者の投稿者リンク（「コメント導線 @e2e_...」）にも
+	// 当たり、locator が 2 つに解決して落ちる。実際に一度落とした。
+	const comments = card.getByRole('link', { name: /^コメント \d+件$/ });
+	await expect(comments).toBeVisible();
+
+	await comments.click();
+
+	// 写真をクリックしたときと同じ詳細画面へ行く。
+	await expect(page).toHaveURL(/\/posts\/\d+/);
+	await expect(page.getByRole('heading', { name: 'コメント' })).toBeVisible();
+	await expect(page.getByLabel('コメントを書く')).toBeVisible();
+});
+
+// 詳細画面では自分自身へのリンクになるため、リンクにしない。
+test('詳細画面のコメント数はリンクにしない', async ({ page }) => {
+	await signup(page);
+	const body = `詳細のコメント数 ${Date.now()}`;
+	await createPost(page, { body, prefecture: '徳島県' });
+
+	// createPost は詳細画面で終わる。
+	await expect(page).toHaveURL(/\/posts\/\d+/);
+	const card = page.getByRole('article').filter({ hasText: body });
+	await expect(card.getByRole('link', { name: /^コメント \d+件$/ })).toHaveCount(0);
+});
