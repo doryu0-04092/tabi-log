@@ -110,3 +110,42 @@ func TestFeedFillsAuthorFollowState(t *testing.T) {
 		t.Fatalf("自分の投稿者に isMe=true を返していない: %+v", second)
 	}
 }
+
+/*
+タグは NFKC で正規化してから小文字にする。
+
+**これが無いと表記ゆれで同じタグが分裂する。** ＴＯＫＹＯ（全角）と TOKYO、
+ﾎｯｶｲﾄﾞｳ（半角カナ）と ホッカイドウ が別の行として登録され、
+タグでの絞り込みは完全一致なので**分裂した側にヒットしない。**
+
+順序も大事で、小文字化を先にすると ＴＯＫＹＯ は ｔｏｋｙｏ にしかならず
+TOKYO と一致しない。
+*/
+func Testタグは全角と半角を同じものとして扱う(t *testing.T) {
+	tests := []struct {
+		name string
+		入力   []string
+		期待   []string
+	}{
+		{"全角の英字", []string{"ＴＯＫＹＯ"}, []string{"tokyo"}},
+		{"半角カナ", []string{"ﾎｯｶｲﾄﾞｳ"}, []string{"ホッカイドウ"}},
+		{"全角と半角が同じになる", []string{"ＴＯＫＹＯ", "tokyo"}, []string{"tokyo"}},
+		{"全角の数字", []string{"２０２６"}, []string{"2026"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, msg := normalizeTags(&tt.入力)
+			if msg != "" {
+				t.Fatalf("弾かれた: %s", msg)
+			}
+			if len(got) != len(tt.期待) {
+				t.Fatalf("%d個になった（%v）。%d個を期待した（%v）", len(got), got, len(tt.期待), tt.期待)
+			}
+			for i := range got {
+				if got[i] != tt.期待[i] {
+					t.Errorf("%d番目が %q。%q を期待した", i, got[i], tt.期待[i])
+				}
+			}
+		})
+	}
+}

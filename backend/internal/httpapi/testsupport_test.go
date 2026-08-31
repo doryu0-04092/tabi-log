@@ -72,6 +72,9 @@ type testDeps struct {
 	uploadLimit        int
 	isProduction       bool
 
+	// loginAttemptLimit は認証の上限。0 なら緩い既定値を使う。
+	loginAttemptLimit int
+
 	// cdn は画像配信の署名付き Cookie を発行する係。
 	// **nil なら Cookie を置かない**（ローカルと同じ状態）。
 	cdn *storage.CDNSigner
@@ -119,6 +122,9 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 	if d.uploadLimit == 0 {
 		d.uploadLimit = 1000
 	}
+	if d.loginAttemptLimit == 0 {
+		d.loginAttemptLimit = 1000
+	}
 
 	deps := Deps{
 		DB:            stubPinger{err: d.pingErr},
@@ -138,7 +144,7 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 			RefreshGrace: 10 * time.Second,
 			CookieSecure: false,
 		},
-		LoginAttemptLimit:  10,
+		LoginAttemptLimit:  d.loginAttemptLimit,
 		LoginAttemptWindow: 5 * time.Minute,
 		// **書き込みの上限はテストでは緩めておく。** 上限そのものを
 		// 見るテストは、上限を絞った専用の構成で確かめる（writelimit_test.go）。
@@ -202,8 +208,11 @@ func (s *stubAuthRepo) CreateUser(_ context.Context, handle, email, passwordHash
 	return u, nil
 }
 
+// **大文字小文字を区別しない。** users.email の照合順序は
+// utf8mb4_0900_ai_ci で、実際の DB は区別しない。区別する偽物を使うと、
+// 本番では通る経路がテストでだけ落ちる。
 func (s *stubAuthRepo) FindCredentialsByEmail(_ context.Context, email string) (domain.Credentials, error) {
-	c, ok := s.users[email]
+	c, ok := s.users[strings.ToLower(email)]
 	if !ok {
 		return domain.Credentials{}, errUserNotFoundForTest
 	}

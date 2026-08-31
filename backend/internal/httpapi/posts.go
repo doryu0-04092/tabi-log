@@ -17,6 +17,7 @@ import (
 	"github.com/doryu0-04092/tabi-log/backend/internal/store"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
+	"golang.org/x/text/unicode/norm"
 )
 
 // originalsPrefix はアップロードされた原本を置く接頭辞。
@@ -510,7 +511,14 @@ func normalizeTags(tags *[]string) ([]string, string) {
 	out := make([]string, 0, len(*tags))
 	seen := make(map[string]struct{}, len(*tags))
 	for _, raw := range *tags {
-		name := strings.ToLower(strings.TrimSpace(raw))
+		// **NFKC で揃えてから小文字にする。** 順序を逆にしない。
+		// 全角の英字は NFKC で半角になるため、先に小文字化しても
+		// ＴＯＫＹＯ は ｔｏｋｙｏ にしかならず TOKYO と一致しない。
+		//
+		// これが無いと ＴＯＫＹＯ と TOKYO、ﾎｯｶｲﾄﾞｳ と ホッカイドウ が
+		// **別のタグとして登録される。** タグでの絞り込みは完全一致
+		// （search.go の t.name = ?）なので、分裂した側にヒットしない。
+		name := strings.ToLower(norm.NFKC.String(strings.TrimSpace(raw)))
 		name = strings.TrimPrefix(name, "#")
 		if name == "" {
 			continue

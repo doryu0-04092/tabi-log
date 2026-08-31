@@ -122,6 +122,7 @@ func NewRouter(deps Deps) http.Handler {
 		prefectureHandler: &prefectureHandler{store: deps.Prefectures, logger: deps.Logger},
 		authHandler: &authHandler{
 			repo:    deps.Auth,
+			avatars: avatars,
 			issuer:  deps.TokenIssuer,
 			opts:    deps.AuthOptions,
 			logger:  deps.Logger,
