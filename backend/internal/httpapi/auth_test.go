@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/doryu0-04092/tabi-log/backend/internal/auth"
 	"github.com/doryu0-04092/tabi-log/backend/internal/domain"
 	"github.com/doryu0-04092/tabi-log/backend/internal/store"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func do(t *testing.T, router http.Handler, r *http.Request) *httptest.ResponseRecorder {
@@ -453,5 +455,88 @@ func TestGetMe_メールアドレスを返さない(t *testing.T) {
 	// ここにメールアドレスが混ざると全利用者のアドレスが漏れる経路になる。
 	if strings.Contains(rec.Body.String(), "a@example.com") {
 		t.Errorf("レスポンスにメールアドレスが含まれている: %s", rec.Body.String())
+	}
+}
+
+/*
+古いコストで作られたハッシュは、ログイン成功時に付け直す。
+
+**bcrypt はコストをハッシュ自体に記録する。** そのため設定を変えても
+既存の利用者は古いコストのまま検証され、**その人だけが取り残される。**
+
+2026-08-31 に実際にそうなった。コストを 12 → 10 に下げたところ、
+新規の利用者は 222ms で入れるのに、既存の利用者は 1100ms のままだった。
+パスワードを変えるまで直らない。
+
+`perf/README.md` の「smoke の p95 が 1.11 秒だった理由」。
+*/
+func Test古いコストのハッシュはログイン時に付け直す(t *testing.T) {
+	// 以前の設定（12）で作られたハッシュを持つ利用者。
+	old, err := bcrypt.GenerateFromPassword([]byte("correct horse battery"), 12)
+	if err != nil {
+		t.Fatalf("ハッシュを作れない: %v", err)
+	}
+	user := domain.User{ID: 7, Handle: "traveler_01", Email: "a@example.com", DisplayName: "たびびと"}
+	repo := &stubAuthRepo{
+		users: map[string]domain.Credentials{
+			"a@example.com": {User: user, PasswordHash: string(old)},
+		},
+		byID: map[uint64]domain.User{7: user},
+	}
+	h := newRouter(t, testDeps{auth: repo})
+
+	rec := doJSON(h, req(http.MethodPost, "/api/auth/login",
+		`{"email":"a@example.com","password":"correct horse battery"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ログインが %d で返った: %s", rec.Code, rec.Body.String())
+	}
+
+	got, ok := repo.rehashed[7]
+	if !ok {
+		t.Fatal("付け直していない。設定を変えても既存の利用者だけ取り残される")
+	}
+	cost, err := bcrypt.Cost([]byte(got))
+	if err != nil {
+		t.Fatalf("付け直したハッシュが読めない: %v", err)
+	}
+	if cost != bcrypt.DefaultCost {
+		t.Errorf("付け直したコストが %d。%d を期待した", cost, bcrypt.DefaultCost)
+	}
+}
+
+// 現在のコストなら触らない。**毎回書き込むと無駄な更新が増える。**
+func Test現在のコストのハッシュは付け直さない(t *testing.T) {
+	repo := loginRepo(t)
+	h := newRouter(t, testDeps{auth: repo})
+
+	rec := doJSON(h, req(http.MethodPost, "/api/auth/login",
+		`{"email":"a@example.com","password":"correct-password"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ログインが %d で返った", rec.Code)
+	}
+	if len(repo.rehashed) != 0 {
+		t.Errorf("付け直す必要がないのに書き込んだ: %v", repo.rehashed)
+	}
+}
+
+// **付け直せなくてもログインは成功させる。**
+// 認証は成立しており、利用者から見て壊れてはいない。
+func Test付け直せなくてもログインは成功する(t *testing.T) {
+	old, err := bcrypt.GenerateFromPassword([]byte("correct horse battery"), 12)
+	if err != nil {
+		t.Fatalf("ハッシュを作れない: %v", err)
+	}
+	user := domain.User{ID: 7, Handle: "traveler_01", Email: "a@example.com", DisplayName: "たびびと"}
+	repo := &stubAuthRepo{
+		users:     map[string]domain.Credentials{"a@example.com": {User: user, PasswordHash: string(old)}},
+		byID:      map[uint64]domain.User{7: user},
+		rehashErr: errors.New("DB に届かない"),
+	}
+	h := newRouter(t, testDeps{auth: repo})
+
+	rec := doJSON(h, req(http.MethodPost, "/api/auth/login",
+		`{"email":"a@example.com","password":"correct horse battery"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ログインが %d で返った。付け直しの失敗で認証を落としてはいけない", rec.Code)
 	}
 }

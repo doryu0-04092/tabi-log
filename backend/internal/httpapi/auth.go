@@ -57,6 +57,10 @@ type AuthRepository interface {
 	CreateRefreshToken(ctx context.Context, userID uint64, hash string, expiresAt time.Time) error
 	RotateRefreshToken(ctx context.Context, presentedHash, newHash string, newExpiresAt, now time.Time, grace time.Duration) (uint64, error)
 	RevokeRefreshTokenByHash(ctx context.Context, hash string, now time.Time) error
+
+	// UpdatePasswordHash はハッシュだけを差し替える。**パスワードの変更ではない。**
+	// 同じパスワードを新しいコストで付け直すために使う。
+	UpdatePasswordHash(ctx context.Context, userID uint64, hash string) error
 }
 
 // AuthOptions はハンドラの振る舞いを決める設定。
@@ -177,6 +181,46 @@ func (h *authHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	h.respondWithSession(w, r, user, http.StatusCreated)
 }
 
+// rehashIfStale は古いコストで作られたハッシュを付け直す。
+//
+// **bcrypt はコストをハッシュ自体に記録する。** そのため設定を変えても
+// 既存の利用者は古いコストのまま検証され、**その人だけが取り残される。**
+//
+// 2026-08-31 に実際にそうなった。コストを 12 → 10 に下げたところ、
+// 新規の利用者は 222ms で入れるのに、既存の利用者は 1100ms のままだった。
+// パスワードを変えるまで直らない。
+//
+// **ログインは失敗させない。** 付け直せなくても認証は成立しており、
+// 利用者から見て壊れてはいない。ここで 500 を返すと
+// 「パスワードは合っているのに入れない」という最も分かりにくい形になる。
+// 次にログインしたときにまた試される。
+//
+// **ただし黙って落とさない。** 付け直せない状態が続けば、
+// 設定を変えた意味がその利用者にだけ及ばない。
+func (h *authHandler) rehashIfStale(r *http.Request, userID uint64, hash, password string) {
+	if !auth.NeedsRehash(hash) {
+		return
+	}
+
+	newHash, err := auth.HashPassword(password)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "パスワードのハッシュを作り直せなかった",
+			slog.String("request_id", RequestIDFrom(r.Context())),
+			slog.Uint64("user_id", userID),
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+
+	if err := h.repo.UpdatePasswordHash(r.Context(), userID, newHash); err != nil {
+		h.logger.ErrorContext(r.Context(), "パスワードのハッシュを付け直せなかった",
+			slog.String("request_id", RequestIDFrom(r.Context())),
+			slog.Uint64("user_id", userID),
+			slog.String("error", err.Error()),
+		)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ログイン
 // ---------------------------------------------------------------------------
@@ -233,6 +277,10 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// 正しく使えている利用者が上限に近づいたままにならないよう、成功時に消す。
 	h.byEmail.Reset("login:" + email)
+
+	// **古いコストのハッシュをここで付け直す。**
+	// 平文を持っているのはこの瞬間だけである。
+	h.rehashIfStale(r, creds.User.ID, hash, req.Password)
 
 	h.respondWithSession(w, r, creds.User, http.StatusOK)
 }
