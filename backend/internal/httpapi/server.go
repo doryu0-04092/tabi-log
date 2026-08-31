@@ -88,6 +88,9 @@ type Deps struct {
 
 	WriteLimitWindow time.Duration
 
+	// IsProduction は本番かどうか。**配るものを絞るために使う。**
+	IsProduction bool
+
 	// Deletions は消し損ねた S3 のオブジェクトの控え先。
 	// **nil でも動くが、削除に失敗した鍵は失われる。**
 	Deletions DeletionQueue
@@ -192,7 +195,10 @@ func NewRouter(deps Deps) http.Handler {
 			logger:  deps.Logger,
 			now:     time.Now,
 		},
-		docsHandler: &docsHandler{},
+		// **本番では仕様を読む画面を配らない。** 外部 CDN の
+		// スクリプトを同一オリジンで動かすため（audit H4）。
+		// 仕様そのもの（/api/openapi.yaml）は配り続ける。
+		docsHandler: &docsHandler{exposeUI: !deps.IsProduction},
 		searchHandler: &searchHandler{
 			repo:    deps.Search,
 			posts:   deps.Posts,

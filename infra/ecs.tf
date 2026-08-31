@@ -24,17 +24,40 @@ resource "aws_ecr_repository" "backend" {
 resource "aws_ecr_lifecycle_policy" "backend" {
   repository = aws_ecr_repository.backend.name
 
+  # **CD が積むイメージだけを削る。**
+  #
+  # 以前は tagStatus = "any" で「直近10件」だったが、それでは
+  # migrate と initial のイメージも巻き込む。どちらも Terraform が
+  # 名指しで参照しており（migrate.tf / ecs.tf）、消えると
+  # マイグレーションもタスクの起動もできなくなる。
+  #
+  # CD が積むのはコミットハッシュのタグである。それだけを対象にする。
+  # **タグの付け方を変えるときは、ここも変えること。**
   policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "直近10件だけ残す"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 10
-      }
-      action = { type = "expire" }
-    }]
+    rules = [
+      {
+        rulePriority = 1
+        description  = "タグの無いイメージは1日で消す（積み損ねた残骸）"
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 1
+        }
+        action = { type = "expire" }
+      },
+      {
+        rulePriority = 2
+        description  = "CD が積んだイメージは直近10件だけ残す"
+        selection = {
+          tagStatus     = "tagged"
+          tagPrefixList = [var.cd_image_tag_prefix]
+          countType     = "imageCountMoreThan"
+          countNumber   = 10
+        }
+        action = { type = "expire" }
+      },
+    ]
   })
 }
 

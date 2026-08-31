@@ -96,6 +96,9 @@ resource "aws_db_instance" "main" {
   # マイナーバージョンの自動更新は入れる。
   # 更新の窓を絞れるほどの運用体制が無い以上、
   # 古いまま放置するより自動で当たるほうが安全である。
+  #
+  # **db_engine_version をマイナー版まで固定しないこと。**
+  # 固定すると、自動更新が走った直後の plan が版を戻す差分を出す。
   auto_minor_version_upgrade = true
 
   # パラメータグループの変更（static）を即時に効かせる。

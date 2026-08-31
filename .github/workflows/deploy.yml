@@ -47,7 +47,7 @@ jobs:
     name: deploy to AWS
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 唯一の追加アクション。OIDC での一時認証情報の取得はこれに任せる。
       - name: Configure AWS credentials
@@ -138,16 +138,22 @@ jobs:
       # 付けないと buildx が attestation を含む OCI イメージインデックスを作り、
       # ECS Fargate がイメージを取得できないことがある。
       #
-      # タグはコミット SHA。latest だけだと「今どれが動いているか」が追えず、
+      # タグは sha-<コミットSHA>。latest だけだと「今どれが動いているか」が追えず、
       # ロールバック先も指定できない。
+      #
+      # **接頭辞 sha- を付けるのは ECR のライフサイクルのためである。**
+      # ECR は「このタグは消さない」を書けず、消す対象を選ぶことしかできない。
+      # 素の SHA には共通の接頭辞が無いため対象を絞れず、tagStatus = "any"
+      # にするしかなくなる。それだと migrate / initial のイメージまで
+      # 巻き込んで消える（どちらも Terraform が名指しで参照している）。
       - name: Build and push the backend image
         if: inputs.deploy_backend
         run: |
           set -euo pipefail
           docker build --platform linux/amd64 --provenance=false --sbom=false \
             -f docker/Dockerfile.backend \
-            -t "$REPO:$GITHUB_SHA" -t "$REPO:latest" .
-          docker push "$REPO:$GITHUB_SHA"
+            -t "$REPO:sha-$GITHUB_SHA" -t "$REPO:latest" .
+          docker push "$REPO:sha-$GITHUB_SHA"
           docker push "$REPO:latest"
         env:
           REPO: ${{ steps.env.outputs.registry }}/tabilog
@@ -163,7 +169,7 @@ jobs:
         run: |
           set -euo pipefail
           aws ecs describe-task-definition --task-definition "$TASK_FAMILY" --query taskDefinition > current.json
-          jq --arg image "$REPO:$GITHUB_SHA" '
+          jq --arg image "$REPO:sha-$GITHUB_SHA" '
             .containerDefinitions[0].image = $image
             | del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
                   .compatibilities, .registeredAt, .registeredBy)
@@ -191,7 +197,7 @@ jobs:
 
       - name: Set up Node.js
         if: inputs.deploy_frontend
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
@@ -202,10 +208,13 @@ jobs:
         run: npm ci && npm run build
         working-directory: frontend
 
-      # **index.html だけ扱いを分ける。**
-      # ハッシュ付きのアセットは長期キャッシュ、index.html は no-cache にする。
-      # 分けないと、新しいアセットを置いても古い index.html が参照され続けて
-      # 更新が反映されない。
+      # **3つに分ける。** 名前が変わるものと変わらないものが混ざっている。
+      #
+      # | 対象 | 保持 | 理由 |
+      # |---|---|---|
+      # | `_app/immutable/**` | 1年 immutable | 名前にハッシュが入る。中身が変われば別の名前になる |
+      # | `robots.txt` / `_app/version.json` 等 | 5分 | **同じ名前のまま中身が変わる。** immutable にすると1年間更新できない |
+      # | `index.html` | no-cache | 新しいアセットを置いても古いものが参照され続ける |
       #
       # 順序も逆にできない。**先に index.html を置くと、まだ存在しない
       # アセットを参照する期間ができる。**
@@ -213,8 +222,14 @@ jobs:
         if: inputs.deploy_frontend
         run: |
           set -euo pipefail
+          # ハッシュ付きでないものを先に。**--delete はここでしか効かない**
+          # （除外したものは削除の対象にもならない）。
           aws s3 sync build/ "s3://$BUCKET/" --delete \
             --exclude index.html \
+            --exclude "_app/immutable/*" \
+            --cache-control "public,max-age=300"
+          # ハッシュ付き。**古いものもここで消す。**
+          aws s3 sync build/_app/immutable/ "s3://$BUCKET/_app/immutable/" --delete \
             --cache-control "public,max-age=31536000,immutable"
           aws s3 cp build/index.html "s3://$BUCKET/index.html" \
             --cache-control "no-cache"

@@ -70,6 +70,7 @@ type testDeps struct {
 	postCreateLimit    int
 	commentCreateLimit int
 	uploadLimit        int
+	isProduction       bool
 
 	// cdn は画像配信の署名付き Cookie を発行する係。
 	// **nil なら Cookie を置かない**（ローカルと同じ状態）。
@@ -147,6 +148,7 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 		PostCreateLimit:    d.postCreateLimit,
 		CommentCreateLimit: d.commentCreateLimit,
 		UploadLimit:        d.uploadLimit,
+		IsProduction:       d.isProduction,
 		WriteLimitWindow:   time.Hour,
 		Logger:             discardLogger(),
 	}

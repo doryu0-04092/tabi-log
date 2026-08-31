@@ -110,12 +110,33 @@ type authHandler struct {
 	newToken func() (string, string, error)
 }
 
+// warnRateLimited は上限で弾いたことを発信元つきで記録する。
+//
+// **これが無いと 429 の急増を追えない。** 攻撃なのか上限が
+// 厳しすぎるのかは、発信元が1つに偏っているかどうかで分かれる
+// (operations.md A8)。どちらも利用者から見れば同じ画面になる。
+//
+// **発信元をログに載せるのはここと盗用の検知だけである。** 通常の
+// アクセスログには載せない。個人情報を必要な場面に限って残す。
+// 保持期間は CloudWatch Logs の 14 日（infra/ecs.tf）。
+func (h *authHandler) warnRateLimited(r *http.Request, kind, ip string) {
+	if h.logger == nil {
+		return
+	}
+	h.logger.WarnContext(r.Context(), "認証の上限で拒否した",
+		slog.String("request_id", RequestIDFrom(r.Context())),
+		slog.String("kind", kind),
+		slog.String("client_ip", ip),
+	)
+}
+
 // ---------------------------------------------------------------------------
 // サインアップ
 // ---------------------------------------------------------------------------
 
 func (h *authHandler) Signup(w http.ResponseWriter, r *http.Request) {
-	if !h.byIP.Allow("signup:" + h.clientIP(r)) {
+	if ip := h.clientIP(r); !h.byIP.Allow("signup:" + ip) {
+		h.warnRateLimited(r, "signup", ip)
 		writeError(w, r, http.StatusTooManyRequests, "rate_limited", "試行回数が多すぎます。しばらく待ってからお試しください")
 		return
 	}
@@ -178,7 +199,9 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// DB は大文字小文字を区別しない。生のまま数えると、
 	// User@example.com と user@example.com が別々に数えられ、
 	// **大文字小文字を変えるだけで試行回数を何倍にもできる。**
-	if !h.byIP.Allow("login:"+h.clientIP(r)) || !h.byEmail.Allow("login:"+strings.ToLower(email)) {
+	ip := h.clientIP(r)
+	if !h.byIP.Allow("login:"+ip) || !h.byEmail.Allow("login:"+strings.ToLower(email)) {
+		h.warnRateLimited(r, "login", ip)
 		writeError(w, r, http.StatusTooManyRequests, "rate_limited", "試行回数が多すぎます。しばらく待ってからお試しください")
 		return
 	}
@@ -248,8 +271,12 @@ func (h *authHandler) Refresh(w http.ResponseWriter, r *http.Request, _ gen.Refr
 	case errors.Is(err, store.ErrRefreshTokenReused):
 		// 盗用の疑いは記録に残す。利用者から見ると突然のログアウトなので、
 		// 問い合わせがあったときに何が起きたかを説明できる必要がある。
+		// **発信元を残す。** 1件では並行リフレッシュと区別できず、
+		// 「同じ発信元から複数の利用者に起きているか」でしか判断できない
+		// (operations.md A9)。
 		h.logger.WarnContext(r.Context(), "失効済みリフレッシュトークンの再提示を検知し、全トークンを失効させた",
 			slog.String("request_id", RequestIDFrom(r.Context())),
+			slog.String("client_ip", h.clientIP(r)),
 		)
 		h.clearRefreshCookie(w)
 		writeError(w, r, http.StatusUnauthorized, "token_reuse_detected",
