@@ -169,6 +169,21 @@ type stubAuthRepo struct {
 	revokedHash  string
 	savedTokens  []string
 	findByIDErr  error
+
+	// rehashed は UpdatePasswordHash に渡された値。付け直しの検証に使う。
+	rehashed  map[uint64]string
+	rehashErr error
+}
+
+func (s *stubAuthRepo) UpdatePasswordHash(_ context.Context, userID uint64, hash string) error {
+	if s.rehashErr != nil {
+		return s.rehashErr
+	}
+	if s.rehashed == nil {
+		s.rehashed = map[uint64]string{}
+	}
+	s.rehashed[userID] = hash
+	return nil
 }
 
 func (s *stubAuthRepo) CreateUser(_ context.Context, handle, email, passwordHash, displayName string) (domain.User, error) {

@@ -278,3 +278,21 @@ func nullStringToPtr(v sql.NullString) *string {
 	s := v.String
 	return &s
 }
+
+// UpdatePasswordHash はハッシュだけを差し替える。
+//
+// **パスワードの変更ではない。** 同じパスワードを新しいコストで
+// 付け直すために使う。bcrypt はコストをハッシュ自体に記録するため、
+// 設定を変えても既存の利用者は古いコストのまま取り残される。
+//
+// 呼ぶのはログインが成功した直後だけである。**その時点でしか
+// 平文を持っていない。**
+func (s *AuthStore) UpdatePasswordHash(ctx context.Context, userID uint64, hash string) error {
+	if err := s.q.UpdatePassword(ctx, dbgen.UpdatePasswordParams{
+		PasswordHash: hash,
+		ID:           userID,
+	}); err != nil {
+		return fmt.Errorf("パスワードのハッシュを更新できない: %w", err)
+	}
+	return nil
+}
