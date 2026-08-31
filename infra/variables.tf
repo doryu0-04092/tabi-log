@@ -321,9 +321,29 @@ variable "github_deploy_subjects" {
     引き受けられる。** OIDC 設定で最も多い致命的な誤りがこれ。
 
     既定は main ブランチからの実行のみ。
+
+    **所有者名とリポジトリ名だけでは一致しない。**
+    このリポジトリの sub には ID が埋め込まれている。
+
+        repo:doryu0-04092@292095077/tabi-log@1349507057:ref:refs/heads/main
+                        ^^^^^^^^^^          ^^^^^^^^^^
+                        所有者 ID           リポジトリ ID
+
+    改名しても別人が乗っ取れないようにするためのもので、
+    GitHub 側の既定（`use_default: true`）でこの形になる。
+
+        gh api repos/<所有者>/<名前>/actions/oidc/customization/sub
+
+    **名前だけで書くと `Not authorized to perform sts:AssumeRoleWithWebIdentity`
+    で落ちる。** 実際に送られた sub は CloudTrail の
+    AssumeRoleWithWebIdentity イベント（userIdentity.userName）で見られる。
+
+    `@ID` を含めずに済ませたい場合はワイルドカードでも書けるが、
+    **絞り込みが緩くなるため採らない。** 別のリポジトリが同じ接頭辞を
+    持ちうる形にすると、sub を絞る意味が薄れる。
   EOT
   type        = list(string)
-  default     = ["repo:doryu0-04092/tabi-log:ref:refs/heads/main"]
+  default     = ["repo:doryu0-04092@292095077/tabi-log@1349507057:ref:refs/heads/main"]
 }
 
 variable "cd_image_tag_prefix" {
