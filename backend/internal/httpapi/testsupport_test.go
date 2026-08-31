@@ -69,6 +69,7 @@ type testDeps struct {
 	// **上限そのものを見るテストだけがここを絞る。**
 	postCreateLimit    int
 	commentCreateLimit int
+	uploadLimit        int
 
 	// cdn は画像配信の署名付き Cookie を発行する係。
 	// **nil なら Cookie を置かない**（ローカルと同じ状態）。
@@ -114,6 +115,9 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 	if d.commentCreateLimit == 0 {
 		d.commentCreateLimit = 1000
 	}
+	if d.uploadLimit == 0 {
+		d.uploadLimit = 1000
+	}
 
 	deps := Deps{
 		DB:            stubPinger{err: d.pingErr},
@@ -142,6 +146,7 @@ func newRouter(t *testing.T, d testDeps) http.Handler {
 		CDNCookieTTL:       24 * time.Hour,
 		PostCreateLimit:    d.postCreateLimit,
 		CommentCreateLimit: d.commentCreateLimit,
+		UploadLimit:        d.uploadLimit,
 		WriteLimitWindow:   time.Hour,
 		Logger:             discardLogger(),
 	}

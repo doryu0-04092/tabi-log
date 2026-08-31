@@ -16,6 +16,7 @@ import (
 	"github.com/doryu0-04092/tabi-log/backend/internal/auth"
 	"github.com/doryu0-04092/tabi-log/backend/internal/config"
 	"github.com/doryu0-04092/tabi-log/backend/internal/httpapi"
+	"github.com/doryu0-04092/tabi-log/backend/internal/janitor"
 	"github.com/doryu0-04092/tabi-log/backend/internal/search"
 	"github.com/doryu0-04092/tabi-log/backend/internal/storage"
 	"github.com/doryu0-04092/tabi-log/backend/internal/store"
@@ -124,6 +125,8 @@ func run() error {
 		LoginAttemptLimit:  cfg.Auth.LoginAttemptLimit,
 		PostCreateLimit:    cfg.Auth.PostCreateLimit,
 		CommentCreateLimit: cfg.Auth.CommentCreateLimit,
+		UploadLimit:        cfg.Auth.UploadLimit,
+		Deletions:          store.NewObjectDeletionQueue(db),
 		WriteLimitWindow:   cfg.Auth.WriteLimitWindow,
 		LoginAttemptWindow: cfg.Auth.LoginAttemptWindow,
 		Logger:             logger,
@@ -137,6 +140,20 @@ func run() error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+
+	// 溜まり続けるものを定期的に片付ける。
+	//
+	// **専用のバッチは立てない。** タスクが複数あると同じ掃除が
+	// 重なって走るが、削除は冪等なので害が無い。排他のために
+	// 外部の仕組みを足すほうが、この規模では複雑さに見合わない。
+	//
+	// ctx が終わると Run も戻る。サーバーの停止を待たせない。
+	go janitor.New(
+		store.NewJanitorStore(db),
+		s3Storage,
+		janitor.DefaultConfig(),
+		logger,
+	).Run(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {

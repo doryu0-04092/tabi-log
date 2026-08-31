@@ -36,3 +36,14 @@ WHERE user_id = ? AND revoked_at IS NULL;
 UPDATE refresh_tokens
 SET revoked_at = ?
 WHERE token_hash = ? AND revoked_at IS NULL;
+
+-- 期限が切れたトークンの行を消す。
+--
+-- **失効済みでも、期限内のものは消さない。** 盗用の検知は
+-- 「失効済みトークンの再提示」で判定しており、行を消すと
+-- 再提示が「知らないトークン」に見えて検知できなくなる。
+-- 期限が過ぎたトークンは提示されても通らないため、消してよい。
+-- name: DeleteExpiredRefreshTokens :execresult
+DELETE FROM refresh_tokens
+WHERE expires_at < ?
+LIMIT ?;

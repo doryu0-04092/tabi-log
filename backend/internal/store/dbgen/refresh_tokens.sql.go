@@ -28,6 +28,27 @@ func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshToken
 	return q.db.ExecContext(ctx, createRefreshToken, arg.UserID, arg.TokenHash, arg.ExpiresAt)
 }
 
+const deleteExpiredRefreshTokens = `-- name: DeleteExpiredRefreshTokens :execresult
+DELETE FROM refresh_tokens
+WHERE expires_at < ?
+LIMIT ?
+`
+
+type DeleteExpiredRefreshTokensParams struct {
+	ExpiresAt time.Time
+	Limit     int32
+}
+
+// 期限が切れたトークンの行を消す。
+//
+// **失効済みでも、期限内のものは消さない。** 盗用の検知は
+// 「失効済みトークンの再提示」で判定しており、行を消すと
+// 再提示が「知らないトークン」に見えて検知できなくなる。
+// 期限が過ぎたトークンは提示されても通らないため、消してよい。
+func (q *Queries) DeleteExpiredRefreshTokens(ctx context.Context, arg DeleteExpiredRefreshTokensParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteExpiredRefreshTokens, arg.ExpiresAt, arg.Limit)
+}
+
 const getRefreshTokenByHashForUpdate = `-- name: GetRefreshTokenByHashForUpdate :one
 SELECT id, user_id, token_hash, expires_at, revoked_at, replaced_by, created_at
 FROM refresh_tokens

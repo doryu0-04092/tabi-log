@@ -85,3 +85,55 @@ SELECT v.media_id, m.post_id, v.kind, v.s3_key, v.width, v.height
 FROM media_variants v
 JOIN media m ON m.id = v.media_id
 WHERE m.post_id IN (sqlc.slice('post_ids'));
+
+-- どこからも参照されていない画像。
+--
+-- 投稿にも紐づかず、アバターにも使われていないものが対象。
+-- **status では絞らない。** processed まで進んだが投稿されなかった
+-- ものにも変換物があり、そちらが消えずに残るためである。
+--
+-- LIMIT で区切るのは、溜まっていた場合に1回の掃除が長時間の
+-- トランザクションにならないようにするため。
+-- name: ListOrphanMedia :many
+SELECT m.id, m.s3_key
+FROM media m
+         LEFT JOIN users u ON u.avatar_media_id = m.id
+WHERE m.post_id IS NULL
+  AND u.id IS NULL
+  AND m.created_at < ?
+ORDER BY m.id
+LIMIT ?;
+
+-- name: ListVariantKeysByMediaID :many
+SELECT s3_key
+FROM media_variants
+WHERE media_id = ?;
+
+-- media_variants は外部キーの連鎖で消える。
+-- name: DeleteMediaByID :exec
+DELETE FROM media
+WHERE id = ?;
+
+-- 消すべき S3 のオブジェクトを控える。
+--
+-- **消す前に入れる。** 消してから入れるのでは、その間に落ちた場合に
+-- 鍵を辿れなくなる（それが避けたい状態そのものである）。
+-- name: EnqueueObjectDeletion :exec
+INSERT INTO pending_object_deletions (s3_key)
+VALUES (?)
+ON DUPLICATE KEY UPDATE attempts = attempts + 1;
+
+-- name: ListPendingObjectDeletions :many
+SELECT id, s3_key
+FROM pending_object_deletions
+ORDER BY id
+LIMIT ?;
+
+-- name: DeletePendingObjectDeletion :exec
+DELETE FROM pending_object_deletions
+WHERE id = ?;
+
+-- name: IncrementPendingObjectDeletionAttempts :exec
+UPDATE pending_object_deletions
+SET attempts = attempts + 1
+WHERE id = ?;

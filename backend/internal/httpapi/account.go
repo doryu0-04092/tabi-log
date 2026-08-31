@@ -38,6 +38,10 @@ type accountHandler struct {
 	likes   ReactionRepository
 	follows FollowRepository
 	storage ObjectStorage
+
+	// deletions は消し損ねた S3 のオブジェクトの控え先。
+	deletions DeletionQueue
+
 	avatars *avatarResolver
 	opts    AuthOptions
 	logger  *slog.Logger
@@ -186,17 +190,11 @@ func (h *accountHandler) DeleteAccount(w http.ResponseWriter, r *http.Request, _
 
 	// **S3 は外部キーの連鎖では消えない。** データベース側を確定させてから消す。
 	// ここで失敗しても退会は成立させる。「データベースは消えたが S3 に残る」は
-	// 棚卸しで拾えるが、逆は表示が壊れる。
-	if len(keys) > 0 {
-		if err := h.storage.Delete(r.Context(), keys...); err != nil {
-			h.logger.ErrorContext(r.Context(), "退会時の画像削除に失敗した",
-				slog.String("request_id", RequestIDFrom(r.Context())),
-				slog.Uint64("user_id", userID),
-				slog.Int("keys", len(keys)),
-				slog.String("error", err.Error()),
-			)
-		}
-	}
+	// あとから拾えるが、逆は表示が壊れる。
+	//
+	// **拾えるようにするために控える。** 行が消えた時点で鍵を辿れなくなり、
+	// 控えなければオブジェクトが永久に残る。
+	deleteObjects(r, h.storage, h.deletions, h.logger, "退会時の画像削除に失敗した", keys)
 
 	http.SetCookie(w, h.expiredRefreshCookie())
 	w.WriteHeader(http.StatusNoContent)

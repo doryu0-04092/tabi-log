@@ -54,3 +54,14 @@ UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL;
 -- 既読にできるかの確認に使う。存在しない場合と他人あての場合を区別しない。
 -- name: NotificationExists :one
 SELECT EXISTS(SELECT 1 FROM notifications WHERE id = ? AND user_id = ?);
+
+-- 退会したときに、その人が関わる通知を両方向とも消す。
+--
+-- **外部キーの ON DELETE CASCADE は効かない。** 退会は users 行を
+-- 残す論理削除であり、行が消えないため連鎖しない。
+--
+-- actor_id 側を消さないと、相手の一覧に「退会したユーザーがいいね
+-- しました」が残り続ける。リンク先は 404 になる。
+-- name: DeleteNotificationsInvolvingUser :exec
+DELETE FROM notifications
+WHERE user_id = ? OR actor_id = ?;

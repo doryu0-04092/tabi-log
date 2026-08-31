@@ -116,8 +116,13 @@ resource "aws_db_instance" "main" {
 # ここが上限の根拠**になる（見積もりは db_estimated_max_connections）。
 #
 # 計算で止めるのではなく、超える構成を書いたときに気づけるようにしておく。
+# **Lambda も同じ RDS に繋ぐ。** ECS だけを数えると、
+# 画像処理が同時に走ったぶんが計算から漏れる。
 locals {
-  planned_connections = var.desired_count * var.db_max_connections_headroom
+  ecs_connections    = var.desired_count * var.db_max_connections_headroom
+  lambda_connections = var.imageworker_concurrency * var.imageworker_db_connections
+
+  planned_connections = local.ecs_connections + local.lambda_connections
 }
 
 resource "terraform_data" "connection_budget" {
@@ -126,9 +131,13 @@ resource "terraform_data" "connection_budget" {
     precondition {
       condition = local.planned_connections <= var.db_estimated_max_connections
       error_message = format(
-        "接続数が上限を超える見込みです: タスク %d × プール %d = %d > 約%d。タスク数を減らすか、インスタンスクラスを上げて db_estimated_max_connections も上げてください。",
+        "接続数が上限を超える見込みです: タスク %d × プール %d = %d、Lambda %d × プール %d = %d、合計 %d > 約%d。タスク数か Lambda の同時実行数を減らすか、インスタンスクラスを上げて db_estimated_max_connections も上げてください。",
         var.desired_count,
         var.db_max_connections_headroom,
+        local.ecs_connections,
+        var.imageworker_concurrency,
+        var.imageworker_db_connections,
+        local.lambda_connections,
         local.planned_connections,
         var.db_estimated_max_connections,
       )

@@ -234,6 +234,22 @@ func (s *AccountStore) DeleteAccount(ctx context.Context, userID uint64, now tim
 			return fmt.Errorf("画像の削除に失敗した: %w", err)
 		}
 
+		// 通知は受け取った側・起こした側の両方を消す。
+		//
+		// **外部キーの ON DELETE CASCADE は効かない。** 退会は users 行を
+		// 残す論理削除であり、行が消えないため連鎖しない。
+		//
+		// 起こした側（actor_id）を消さないと、**相手の一覧に「退会した
+		// ユーザーがいいねしました」が残り続ける。** リンク先は 404 になる。
+		// 投稿ごと消えるものは連鎖するが、他人の投稿へのいいねや
+		// フォローの通知は投稿に紐づかないため残る。
+		if err := q.DeleteNotificationsInvolvingUser(ctx, dbgen.DeleteNotificationsInvolvingUserParams{
+			UserID:  userID,
+			ActorID: userID,
+		}); err != nil {
+			return fmt.Errorf("通知の削除に失敗した: %w", err)
+		}
+
 		// **メールアドレスは復元不能な値に置き換える。** UNIQUE 制約があるため、
 		// 置き換えないと本人が同じアドレスで登録し直せない。
 		// パスワードのハッシュも使えない値にして、退会後にログインできなくする。

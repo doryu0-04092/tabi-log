@@ -125,3 +125,50 @@ func Test未認証は上限を消費しない(t *testing.T) {
 		t.Fatalf("認証済みの1回目が %d。201 を期待した: %s", rec.Code, rec.Body.String())
 	}
 }
+
+/*
+署名付き URL の発行にも上限を置く。
+
+**投稿の上限では止まらない。** 発行1回ごとに S3 の PUT・Lambda の起動・
+行の追加が起きるため、投稿を1件も作らずに資源を消費し続けられる。
+
+`docs/audit-2026-08-31.md` H3。
+*/
+
+const presignBody = `{"contentType":"image/jpeg","contentLength":1024}`
+
+func Test画像の発行は上限を超えると429になる(t *testing.T) {
+	tokens := testTokens(t)
+	h := newRouter(t, testDeps{tokens: tokens, uploadLimit: 2})
+	token := mustIssue(t, tokens, 7)
+
+	for i := range 2 {
+		rec := doJSON(h, withBearer(req(http.MethodPost, "/api/media/presign", presignBody), token))
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("%d回目が %d で返った。201 を期待した: %s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+
+	rec := doJSON(h, withBearer(req(http.MethodPost, "/api/media/presign", presignBody), token))
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("上限を超えても %d で通った。429 を期待した", rec.Code)
+	}
+}
+
+// **通らないリクエストでも回数を使う。** 後ろで数えると、
+// わざと不正な値を送ることで無制限に試せてしまう。
+func Test不正な発行要求でも回数を使う(t *testing.T) {
+	tokens := testTokens(t)
+	h := newRouter(t, testDeps{tokens: tokens, uploadLimit: 2})
+	token := mustIssue(t, tokens, 7)
+
+	bad := `{"contentType":"image/gif","contentLength":1024}`
+	for range 2 {
+		doJSON(h, withBearer(req(http.MethodPost, "/api/media/presign", bad), token))
+	}
+
+	rec := doJSON(h, withBearer(req(http.MethodPost, "/api/media/presign", presignBody), token))
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("不正な要求が数えられていない。%d が返った（429 を期待）", rec.Code)
+	}
+}

@@ -230,6 +230,34 @@ variable "db_max_connections_headroom" {
   default     = 25
 }
 
+variable "imageworker_concurrency" {
+  description = <<-EOT
+    画像処理 Lambda の同時実行数の上限。
+
+    **上限を置かないと、アカウントの上限（既定1000）まで増えうる。**
+    Lambda はそれぞれ RDS への接続を持つため、そのまま接続の枯渇になる。
+    署名付き URL の発行には利用者ごとの上限を設けたが、
+    利用者が増えれば全体としては歯止めにならない。
+
+    **接続数の検算に入っている。** 変えるときは rds.tf の precondition
+    が通ることを確かめること。
+  EOT
+  type        = number
+  default     = 5
+}
+
+variable "imageworker_db_connections" {
+  description = <<-EOT
+    画像処理 Lambda 1つあたりの接続プール上限。
+
+    画像処理は1回の呼び出しで数回しか問い合わせない。
+    API サーバー向けの既定（25）は明らかに過剰で、
+    **同時実行のぶんだけ倍になる**ため絞る。
+  EOT
+  type        = number
+  default     = 2
+}
+
 variable "db_estimated_max_connections" {
   description = <<-EOT
     インスタンスクラスごとの max_connections の見積もり。

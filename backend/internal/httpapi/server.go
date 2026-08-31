@@ -78,7 +78,19 @@ type Deps struct {
 	// WriteLimitWindow の間に作れる件数の上限。
 	PostCreateLimit    int
 	CommentCreateLimit int
-	WriteLimitWindow   time.Duration
+
+	// UploadLimit は署名付き URL を発行できる回数の上限。
+	//
+	// **投稿の上限とは別に要る。** 発行1回ごとに S3 の PUT・Lambda の起動・
+	// DB への行の追加が起きるため、投稿を作らなくても資源を消費できる。
+	// 投稿1件につき最大4枚なので、投稿の上限より緩くする。
+	UploadLimit int
+
+	WriteLimitWindow time.Duration
+
+	// Deletions は消し損ねた S3 のオブジェクトの控え先。
+	// **nil でも動くが、削除に失敗した鍵は失われる。**
+	Deletions DeletionQueue
 
 	Logger *slog.Logger
 }
@@ -92,16 +104,6 @@ type Deps struct {
 //  4. WithAuthentication — 認証。**publicPaths 以外は既定で拒否する**
 func NewRouter(deps Deps) http.Handler {
 	mux := http.NewServeMux()
-
-	// 仕様に無いパスは JSON でエラーを返す。
-	// 既定の http.NotFound は HTML を返すため、
-	// JSON を期待しているクライアントが解釈に失敗する。
-	//
-	// 生成コードによる登録より先に置く。ServeMux はより具体的なパターンを
-	// 優先するため、"/api/livez" 等は後から登録してもこちらより優先される。
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		writeError(w, r, http.StatusNotFound, "not_found", "エンドポイントが存在しません")
-	})
 
 	// アバターは投稿・コメント・通知・一覧のどこにも出てくる。
 	// 引き方を1つに寄せ、各ハンドラは同じものを使う。
@@ -144,6 +146,13 @@ func NewRouter(deps Deps) http.Handler {
 				logger:  deps.Logger,
 				kind:    "post",
 			},
+			deletions: deps.Deletions,
+			uploadLimit: &writeLimiter{
+				limiter: NewRateLimiter(deps.UploadLimit, deps.WriteLimitWindow),
+				message: "画像の送信が多すぎます。しばらく待ってからお試しください",
+				logger:  deps.Logger,
+				kind:    "upload",
+			},
 		},
 		reactionHandler: &reactionHandler{
 			repo:    deps.Reactions,
@@ -166,15 +175,16 @@ func NewRouter(deps Deps) http.Handler {
 			logger:  deps.Logger,
 		},
 		accountHandler: &accountHandler{
-			repo:    deps.Account,
-			posts:   deps.Posts,
-			likes:   deps.Reactions,
-			follows: deps.Follows,
-			storage: deps.Storage,
-			avatars: avatars,
-			opts:    deps.AuthOptions,
-			logger:  deps.Logger,
-			now:     time.Now,
+			repo:      deps.Account,
+			posts:     deps.Posts,
+			likes:     deps.Reactions,
+			follows:   deps.Follows,
+			storage:   deps.Storage,
+			deletions: deps.Deletions,
+			avatars:   avatars,
+			opts:      deps.AuthOptions,
+			logger:    deps.Logger,
+			now:       time.Now,
 		},
 		notificationHandler: &notificationHandler{
 			repo:    deps.Notifications,
@@ -208,10 +218,14 @@ func NewRouter(deps Deps) http.Handler {
 		},
 	})
 
+	// 並びは外側から内側。**最後のものが mux に最も近い。**
+	// 404 と 405 の差し替えは ServeMux の書き出しを横取りするため、
+	// mux のすぐ外側でなければ効かない。
 	return chain(mux,
 		WithRequestID,
 		WithRecovery(deps.Logger),
 		WithAccessLog(deps.Logger),
 		WithAuthentication(deps.TokenVerifier, deps.Logger),
+		WithJSONMuxErrors,
 	)
 }

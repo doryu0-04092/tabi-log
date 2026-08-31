@@ -127,7 +127,15 @@ type AuthConfig struct {
 	// **ログイン試行とは目的が違う**（internal/httpapi/writelimit.go）。
 	PostCreateLimit    int
 	CommentCreateLimit int
-	WriteLimitWindow   time.Duration
+
+	// UploadLimit は署名付き URL を発行できる回数。
+	//
+	// **投稿の上限とは別に要る。** 発行するだけで S3 の PUT・
+	// Lambda の起動・行の追加が起きるため、投稿を作らずに
+	// 資源を消費できる。投稿1件につき最大4枚なので、
+	// 投稿の上限（既定20件/時）より緩い値にしてある。
+	UploadLimit      int
+	WriteLimitWindow time.Duration
 
 	// TrustProxyHeaders は X-Forwarded-For を信用するかどうか。
 	//
@@ -177,7 +185,26 @@ func (d DBConfig) DSN() string {
 }
 
 // Load は環境変数から設定を読み取る。必須の値が欠けている場合はエラーを返す。
-func Load() (Config, error) {
+// Role はどのプログラムが設定を読むか。
+//
+// **必要な設定はプログラムごとに違う。** 画像処理はトークンを
+// 発行しないし、Cookie も CDN も扱わない。同じ必須条件を課すと、
+// **使わない秘密を渡すためだけに配ることになる。**
+type Role int
+
+const (
+	// RoleServer は API サーバー。すべての設定を使う。
+	RoleServer Role = iota
+
+	// RoleImageWorker は画像処理。DB と S3 しか使わない。
+	RoleImageWorker
+)
+
+// Load は API サーバーとして設定を読む。
+func Load() (Config, error) { return LoadFor(RoleServer) }
+
+// LoadFor は役割に応じて設定を読み、その役割に要る条件だけを確かめる。
+func LoadFor(role Role) (Config, error) {
 	cfg := Config{
 		Env:             envString("APP_ENV", "local"),
 		Port:            envInt("PORT", 8080),
@@ -204,6 +231,7 @@ func Load() (Config, error) {
 			LoginAttemptWindow: envDuration("LOGIN_ATTEMPT_WINDOW", 5*time.Minute),
 			PostCreateLimit:    envInt("POST_CREATE_LIMIT", 20),
 			CommentCreateLimit: envInt("COMMENT_CREATE_LIMIT", 60),
+			UploadLimit:        envInt("UPLOAD_LIMIT", 120),
 			WriteLimitWindow:   envDuration("WRITE_LIMIT_WINDOW", time.Hour),
 			TrustProxyHeaders:  envBool("TRUST_PROXY_HEADERS", false),
 			TrustedProxyHops:   envInt("TRUSTED_PROXY_HOPS", 1),
@@ -229,7 +257,9 @@ func Load() (Config, error) {
 	if cfg.DB.Password == "" {
 		missing = append(missing, "DB_PASSWORD")
 	}
-	if cfg.Auth.JWTSecret == "" {
+	// **画像処理には要らない。** トークンを発行も検証もしない。
+	// 必須にすると、使わない秘密を Lambda に配ることになる。
+	if role == RoleServer && cfg.Auth.JWTSecret == "" {
 		missing = append(missing, "JWT_SECRET")
 	}
 	if cfg.Storage.Bucket == "" {
@@ -249,17 +279,70 @@ func Load() (Config, error) {
 
 	// 短い署名鍵は総当たりで復元されうる。HS256 の出力は 256 ビットなので、
 	// 鍵もそれ以上の強度を持たせる。
-	if len(cfg.Auth.JWTSecret) < minJWTSecretLength {
+	if role == RoleServer && len(cfg.Auth.JWTSecret) < minJWTSecretLength {
 		return Config{}, fmt.Errorf(
 			"JWT_SECRET が短すぎる: %d 文字（%d 文字以上が必要）",
 			len(cfg.Auth.JWTSecret), minJWTSecretLength)
 	}
 
+	if err := checkProduction(cfg, role); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
+}
+
+// checkProduction は本番で成立しない設定を起動時に弾く。
+//
+// **どれも「動いてしまう」種類の間違いである。** 起動は成功し、
+// 画面も一見動く。壊れているのは守りの部分だけなので、
+// 気づく機会が無い。**起動を止めるのが唯一の検知手段になる。**
+//
+// 本番かどうかは APP_ENV で判断する。ここを誤って production に
+// してもローカルが起動しなくなるだけで、逆よりはるかに安全である。
+func checkProduction(cfg Config, role Role) error {
+	// **API サーバーだけの条件である。** 画像処理は Cookie も CDN も
+	// 扱わず、発信元も見ない。同じ条件を課すと起動できなくなる。
+	if cfg.Env != envProduction || role != RoleServer {
+		return nil
+	}
+
+	var problems []string
+
+	// Secure が無いと、リフレッシュ Cookie が平文の経路にも送られる。
+	if !cfg.Auth.CookieSecure {
+		problems = append(problems, "COOKIE_SECURE が false（Cookie が平文の経路にも送られる）")
+	}
+
+	// ALB の背後では、これが false だと発信元が全員 ALB の IP になる。
+	// **ログイン試行の制限が全利用者で1つの鍵に潰れる。**
+	if !cfg.Auth.TrustProxyHeaders {
+		problems = append(problems, "TRUST_PROXY_HEADERS が false（発信元が全員 ALB になり制限が潰れる）")
+	}
+
+	// LocalStack 向けの指定が残ったまま本番に出ると、S3 に届かない。
+	if cfg.Storage.Endpoint != "" {
+		problems = append(problems, "STORAGE_S3_ENDPOINT が設定されている（ローカル向けの指定が残っている）")
+	}
+
+	// CDN を通さないと、署名付き Cookie による配信の制限が効かない。
+	if !cfg.Storage.CDN.Enabled() {
+		problems = append(problems, "CDN_DOMAIN が空（画像が CloudFront を通らない）")
+	}
+
+	if len(problems) > 0 {
+		return fmt.Errorf("APP_ENV=production では成立しない設定がある: %s",
+			strings.Join(problems, " / "))
+	}
+	return nil
 }
 
 // minJWTSecretLength は署名鍵に要求する最小の長さ。
 const minJWTSecretLength = 32
+
+// envProduction は本番を表す APP_ENV の値。
+// **infra/ecs.tf の環境変数と揃っている必要がある。**
+const envProduction = "production"
 
 func envBool(key string, fallback bool) bool {
 	v, ok := os.LookupEnv(key)

@@ -201,6 +201,13 @@ type Notification struct {
 	CreatedAt   time.Time
 }
 
+type PendingObjectDeletion struct {
+	ID        uint64
+	S3Key     string
+	Attempts  uint32
+	CreatedAt time.Time
+}
+
 type Post struct {
 	ID             uint64
 	UserID         uint64

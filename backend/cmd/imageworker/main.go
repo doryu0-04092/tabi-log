@@ -59,7 +59,9 @@ func main() {
 }
 
 func newWorker(ctx context.Context, logger *slog.Logger) (*worker, error) {
-	cfg, err := config.Load()
+	// **画像処理は JWT を扱わない。** 役割を渡して、使わない秘密を
+	// 必須にしないようにする（docs/audit-2026-08-31.md M1）。
+	cfg, err := config.LoadFor(config.RoleImageWorker)
 	if err != nil {
 		return nil, err
 	}
@@ -214,12 +216,22 @@ func (w *worker) download(ctx context.Context, key string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(out.Body, maxBytes+1))
 }
 
+// variantCacheControl は変換物に付ける保持期間。
+//
+// **変換物は書き換わらない。** 鍵に元画像の識別子が入っており、
+// 内容が変われば別の鍵になる。したがって長く持たせてよい。
+//
+// 付けないと、エッジは既定の 1 日で切れ、ブラウザは経験則で
+// 勝手に決める。**同じ画像を何度も取りに来ることになる。**
+const variantCacheControl = "public, max-age=31536000, immutable"
+
 func (w *worker) upload(ctx context.Context, key string, data []byte) error {
 	_, err := w.s3.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(w.bucket),
-		Key:         aws.String(key),
-		Body:        bytes.NewReader(data),
-		ContentType: aws.String("image/jpeg"),
+		Bucket:       aws.String(w.bucket),
+		Key:          aws.String(key),
+		Body:         bytes.NewReader(data),
+		ContentType:  aws.String("image/jpeg"),
+		CacheControl: aws.String(variantCacheControl),
 	})
 	return err
 }
