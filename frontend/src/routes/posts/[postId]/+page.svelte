@@ -22,6 +22,24 @@
 		}
 	});
 
+	/**
+	 * コメントの増減を投稿のカウンタへ反映する。
+	 *
+	 * **サーバーは正しく数えている。** ずれるのは画面の中だけで、
+	 * 再読み込みすれば直る。それでも直すのは、コメントした直後に
+	 * 「0件」と出るのが**壊れているように見える**ためである。
+	 *
+	 * 投稿を取り直さないのは、そのために全体を読み直すのが
+	 * 見合わないからである。増減はここで分かっている。
+	 */
+	function changeCommentCount(delta: number) {
+		if (view.kind !== 'ready') return;
+		view = {
+			...view,
+			post: { ...view.post, commentCount: Math.max(0, view.post.commentCount + delta) }
+		};
+	}
+
 	async function load(postId: string | undefined) {
 		if (!postId) return;
 		try {
@@ -76,7 +94,7 @@
 
 	<PostCard post={view.post} linkToDetail={false} />
 
-	<CommentSection postId={view.post.id} />
+	<CommentSection postId={view.post.id} onCountChange={changeCommentCount} />
 
 	{#if isMine}
 		<div class="owner-actions">

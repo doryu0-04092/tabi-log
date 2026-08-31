@@ -107,6 +107,48 @@ test.describe('コメント', () => {
 		await expect(page.getByText('い'.repeat(500))).toBeVisible();
 	});
 
+	/*
+	件数の表示が一覧と食い違わないこと。
+
+	**サーバーは正しく数えている。** ずれるのは画面の中だけで、再読み込みすれば
+	直る。それでも見るのは、コメントした直後に「0件」と出るのが
+	**壊れているように見える**ためである。
+
+	2026-08-31 にブラウザで一通り触って見つけた。既存の試験は
+	「コメントが表示されること」しか見ておらず、**件数を見ていなかったため
+	通っていた。**
+	*/
+	test('コメントを足すと件数も増える', async ({ page }) => {
+		await signup(page);
+		await createPost(page, { body: '件数の検査', prefecture: '福井県' });
+
+		await expect(page.getByText('コメント 0件')).toBeVisible();
+
+		await page.getByLabel('コメントを書く').fill('数えられるコメント');
+		await page.getByRole('button', { name: '送信する' }).click();
+		await expect(page.getByText('数えられるコメント')).toBeVisible();
+
+		// **再読み込みしない。** 読み直せば直るずれを見たいので、
+		// その場で合っていることを確かめる。
+		await expect(page.getByText('コメント 1件')).toBeVisible();
+	});
+
+	test('コメントを消すと件数も減る', async ({ page }) => {
+		await signup(page);
+		await createPost(page, { body: '件数が減る検査', prefecture: '島根県' });
+
+		await page.getByLabel('コメントを書く').fill('消される一言');
+		await page.getByRole('button', { name: '送信する' }).click();
+		await expect(page.getByText('コメント 1件')).toBeVisible();
+
+		await page.getByRole('button', { name: '削除する', exact: true }).click();
+		await expect(page.getByRole('alert')).toContainText('取り消せません');
+		await page.getByRole('button', { name: '削除する', exact: true }).click();
+
+		await expect(page.getByText('消される一言')).toBeHidden();
+		await expect(page.getByText('コメント 0件')).toBeVisible();
+	});
+
 	test('コメントはリロードしても残る', async ({ page }) => {
 		await signup(page);
 		await createPost(page, { body: '残るコメント', prefecture: '青森県' });
