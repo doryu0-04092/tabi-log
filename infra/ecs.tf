@@ -145,6 +145,18 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "TRUST_PROXY_HEADERS", value = "true" },
       # CloudFront → ALB → アプリ の2段。**構成の段数を変えたら必ず変える。**
       { name = "TRUSTED_PROXY_HOPS", value = "1" },
+
+      # **測定のときだけ緩める。** 既定はコード側と同じ値で、
+      # ここに書いてあること自体は挙動を変えない。
+      #
+      # 負荷試験は利用者10人ぶんのトークンを setup で取るため、
+      # **1回の実行で上限をちょうど使い切る。** シナリオの間隔
+      # （4〜4分半）は窓（5分）より短く、2本目以降が必ず 429 になる。
+      #
+      # **上げるのは 1 章の確認を終えてからにすること。**
+      # 上げたあとでは「上限が効いているか」を確かめられない
+      # （docs/deploy-verification.md 1 章）。
+      { name = "LOGIN_ATTEMPT_LIMIT", value = tostring(var.login_attempt_limit) },
     ]
 
     secrets = [

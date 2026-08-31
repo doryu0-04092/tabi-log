@@ -377,3 +377,23 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+variable "login_attempt_limit" {
+  description = <<-EOT
+    ログイン試行の上限（発信元ごと・5分あたり）。
+
+    **既定はアプリケーション側と同じ 10 で、変えない限り挙動は変わらない。**
+
+    負荷試験のときだけ緩める。試験は利用者10人ぶんのトークンを setup で
+    取るため、**1回の実行で上限をちょうど使い切る。** シナリオの間隔
+    （4〜4分半）は窓（5分）より短く、2本目以降が必ず 429 になる。
+
+      terraform apply -var login_attempt_limit=1000
+
+    **上げるのは deploy-verification.md の 1 章を終えてからにすること。**
+    上げたあとでは「上限が効いているか」「利用者ごとに数えているか」を
+    確かめられない。**測り終えたら戻すこと。**
+  EOT
+  type        = number
+  default     = 10
+}
