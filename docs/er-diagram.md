@@ -325,7 +325,11 @@ S3 のライフサイクルルールで期限削除できる。これを行わ�
 | `body` | VARCHAR(500) | NOT NULL |
 | `created_at` / `updated_at` | DATETIME(6) | NOT NULL |
 
-**索引**: `INDEX(post_id, created_at, id)` / `INDEX(user_id)`
+**索引**: `INDEX(post_id, id)` / `INDEX(user_id)`
+
+> 2026-09-01 に `(post_id, created_at, id)` から置き換えた（migration 000009）。
+> 一覧は `WHERE post_id = ? AND id > ? ORDER BY id` で引くため、
+> 2列目が `created_at` だと id の順を索引から得られなかった。
 
 返信ツリーは作らない（[要件定義書](requirements.md) の対象外）ため、親コメントへの参照列は持たない。
 

@@ -18,7 +18,7 @@
 | [API仕様](docs/openapi.yaml) | OpenAPI 仕様。**これが唯一の正**であり、コードはここから生成します |
 | [AWS構成設計](docs/aws-architecture.md) | インフラ構成と設計判断 |
 | [インフラ](infra/README.md) | Terraform のコードと使い方 |
-| [動作確認用データの画像](docs/demo-data-credits.md) | デモに入れてある写真の撮影者と利用条件 |
+| [画像の出所](docs/demo-data-credits.md) | リポジトリに含める画像と、デモに入れてある写真の出どころ・利用条件 |
 | [画面設計](docs/screens.md) | 画面一覧と遷移 |
 | [テスト計画](docs/test-plan.md) | テストの範囲と方針 |
 | [運用設計](docs/operations.md) | ログ・監視・アラート・障害対応・ポストモーテム |
@@ -250,7 +250,8 @@ docker compose start mysql
 
 ## 現在の状況
 
-ローカルで**登録 → ログイン → 写真付きで投稿 → 一覧で見る → 削除**まで通ります。
+[機能一覧](docs/features.md) に挙げた機能は**すべて実装済み**です。
+**AWS 上でも動作を確認しました**（2026-08-31 に apply、機能・画像経路・負荷を検証）。
 
 進捗と残りの作業は [docs/progress.md](docs/progress.md) にまとめてあります。
 **作業を再開するときはそちらから読んでください。**

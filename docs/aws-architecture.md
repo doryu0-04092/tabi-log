@@ -3,8 +3,10 @@
 このアプリケーションを AWS 上で動かすための構成を定める。
 利用者からの窓口を CloudFront に一本化する。
 
-> **現在の状態**: **2026-08-30 に実際に apply し、機能確認と負荷計測を行ったのち
-> `terraform destroy` した。** 現在 AWS 上にリソースは無く、課金は発生していない。
+> **現在の状態**: **2026-08-31 に apply して稼働中。** 2026-09-01 に CD で更新した。
+> 使い終えたら `terraform destroy` する運用である（`infra/README.md`）。
+>
+> 8-30 の 1 回目は apply → 検証 → destroy まで行った。本書の記録はその回のものを含む。
 >
 > 本書は「動いた記録」である。確認した内容は次のとおり。
 >
@@ -84,7 +86,7 @@ flowchart TD
 | 経路 | ポリシー | キャッシュ |
 |---|---|---|
 | default（静的サイト） | `CachingOptimized` | **する**。Vite の出力はファイル名にハッシュが付くため長期キャッシュして安全。`index.html` のみ `no-cache` を付け、デプロイ時に invalidate する |
-| `/images/*` | `CachingOptimized` | **する**。URL が `/images/<key>` で固定のため、エッジもブラウザも効く |
+| `/variants/*` | `CachingOptimized` | **する**。URL が `/variants/<鍵>` で固定のため、エッジもブラウザも効く（読む権利は署名付き Cookie に持たせている） |
 | `/api/*` | `CachingDisabled` | **しない（意図的）** |
 
 ### マイグレーションは ECS のタスクとして VPC 内から流す

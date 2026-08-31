@@ -280,6 +280,6 @@ Dependabot の PR 7件は処理した。未処理の PR は無い。
 - [運用](operations.md) — 監視・アラート・障害時の手順
 - [静的監査](audit-2026-08-31.md) — **デプロイ前に別のエージェントへ回した結果**（24件・全件に判定）
 - [デプロイ中の確認](deploy-verification.md) — **上げている間にしか確かめられないこと**
-- [動作確認用データの画像](demo-data-credits.md) — デモの写真の撮影者と利用条件
+- [画像の出所](demo-data-credits.md) — リポジトリに含める画像と、デモの写真の出どころ・利用条件
 - [負荷試験](../perf/README.md) — 結果と**測っていないもの**
 - [インフラ](../infra/README.md) — Terraform の使い方
