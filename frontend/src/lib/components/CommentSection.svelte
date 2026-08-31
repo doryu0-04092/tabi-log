@@ -9,7 +9,20 @@
 	import Avatar from '$lib/components/Avatar.svelte';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 
-	let { postId }: { postId: number } = $props();
+	let {
+		postId,
+		/**
+		 * 件数が変わったときに呼ぶ。
+		 *
+		 * **投稿側のカウンタはここからしか更新できない。** 一覧はこの部品が持ち、
+		 * 件数は投稿（PostCard）が持っているため、伝えないと食い違う。
+		 * 実際に食い違っていた — コメントしても「0件」のままで、
+		 * 再読み込みするまで直らなかった。
+		 *
+		 * 渡さなくても動く。件数を出していない画面のためである。
+		 */
+		onCountChange
+	}: { postId: number; onCountChange?: (delta: number) => void } = $props();
 
 	type State =
 		| { kind: 'loading' }
@@ -76,6 +89,7 @@
 			const created = await createComment(postId, trimmed);
 			view = { ...view, comments: [...view.comments, created] };
 			draft = '';
+			onCountChange?.(1);
 		} catch {
 			// 入力は消さない。書き直しをやり直させることになる。
 			formError = 'コメントを送信できませんでした。もう一度お試しください。';
@@ -92,6 +106,7 @@
 			await deleteComment(commentId);
 			view = { ...view, comments: view.comments.filter((c) => c.id !== commentId) };
 			confirmingId = null;
+			onCountChange?.(-1);
 		} catch {
 			deleteError = 'コメントを削除できませんでした';
 		} finally {
