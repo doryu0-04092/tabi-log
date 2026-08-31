@@ -149,6 +149,42 @@ CloudWatch Alarms → **Amazon SNS** で通知する。
 **鳴らさないもの**: 単発の 5xx、単発の Lambda 失敗、1回の `readyz` 失敗。
 **一時的な失敗で鳴らすと、鳴っても見なくなる。**
 
+### 3.3 通知先の設定
+
+**アラームを作っただけでは、鳴っても誰にも届かない。** 送り先を決めるまで
+「監視しているつもり」になる。ここを最後の1手順として明示しておく。
+
+送り先は Terraform の変数 `alert_email` で渡す。**空のままだと SNS の
+トピックも購読も作られない**（`infra/lambda.tf`）。アラーム自体は作られるので、
+鳴っている事実はコンソールと API からは見える。
+
+```
+# infra/terraform.tfvars（.gitignore 済み。公開リポジトリには載らない）
+alert_email = "you@example.com"
+```
+
+```
+cd infra
+terraform apply
+```
+
+**apply したあと、AWS から購読の確認メールが届く。承認するまで通知は来ない。**
+承認を忘れると、設定した本人が「設定した」と思ったまま届かない状態になる。
+apply したらメールを確認すること。
+
+確認のしかた:
+
+```
+aws sns list-subscriptions-by-topic \
+  --topic-arn "$(aws sns list-topics --query "Topics[?contains(TopicArn,'tabilog-alerts')].TopicArn" --output text)" \
+  --query 'Subscriptions[].{endpoint:Endpoint,arn:SubscriptionArn}'
+```
+
+`SubscriptionArn` が `PendingConfirmation` のままなら、まだ承認されていない。
+
+**メールアドレスをリポジトリに書かないこと。** `infra/terraform.tfvars` は
+`.gitignore` 済みで、`terraform.tfvars.example` には差し替え用の値だけ置いてある。
+
 ---
 
 ## 4. 障害対応フロー
@@ -291,7 +327,7 @@ CloudWatch Dashboard を **Terraform で定義する**（手作業で作らな�
 | 項目 | 状態 |
 |---|---|
 | CloudWatch EMF によるメトリクス | 未実装。AWS へ載せる作業とあわせて入れる |
-| アラートの設定（CloudWatch Alarms + SNS） | **画像処理の2件だけ実装済み**（DLQ の滞留と Lambda の Errors、`infra/lambda.tf`）。§3.2 の API 側の条件は決めてあるが、まだ鳴らない。**通知先は既定で空**（`alert_email`） |
+| アラートの設定（CloudWatch Alarms + SNS） | **画像処理の2件だけ実装済み**（DLQ の滞留と Lambda の Errors、`infra/lambda.tf`）。§3.2 の API 側の条件は決めてあるが、まだ鳴らない |
 | ダッシュボード | 未実装 |
 | 資源側の閾値（A6・A7 ほか） | **暫定。AWS で実測して確定する** |
 | 本番相当での負荷試験 | 未実施。**ローカルの数字は本番の予測にならない**（`perf/README.md`） |

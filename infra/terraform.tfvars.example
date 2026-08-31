@@ -15,3 +15,12 @@ static_bucket_name = "tabilog-static-CHANGE-ME"
 #
 # **image_tag は latest にしない。** どの版が動いているか分からなくなる。
 # image_tag = "initial"
+
+# アラームの通知先メールアドレス。
+#
+# **空なら通知しない。** アラーム自体は作られるが送り先が無く、
+# 鳴っている事実はコンソールと API からしか見えない。
+#
+# 値を入れて apply すると AWS から購読の確認メールが届く。
+# **承認するまで通知は来ない。**
+alert_email = "you@example.com"
