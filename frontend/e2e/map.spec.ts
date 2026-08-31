@@ -12,8 +12,45 @@ test.describe('都道府県制覇マップ', () => {
 		await expect(page.getByText('0 / 47 県（0%）')).toBeVisible();
 
 		// マスはリンクであり、キーボードでも辿れる。
-		const tiles = page.getByRole('list', { name: '都道府県ごとの投稿' }).getByRole('link');
+		// **リストではなく図として出す。** 角丸のマスを SVG で描くようになったため、
+		// 入れ物は role="group"。マス自体は今までどおりリンクである。
+		const tiles = page.getByRole('group', { name: '都道府県ごとの投稿' }).getByRole('link');
 		await expect(tiles).toHaveCount(47);
+	});
+
+	/*
+	県名が読み上げに渡ること。
+
+	**県名は絵に焼き込まれており、DOM には無い。** 見えている文字を
+	そのまま拾える作りではないので、伝える役は次の3つが担う。
+
+	  ① リンクの aria-label（県名・件数・訪問済みかどうか）
+	  ② 「同じ内容を表で見る」の表（県名が文字として並ぶ）
+	  ③ 率の表示（何県中何県か）
+
+	絵そのものは読み上げから外してある。1つの説明でまとめても
+	47県ぶんの中身は伝わらず、読み上げの邪魔になるためである。
+	*/
+	test('県名は絵ではなく、ラベルと表で伝わる', async ({ page }) => {
+		const me = await signup(page, { displayName: '読み上げを見る人' });
+
+		await page.goto(`/users/${me.handle}`);
+		const map = page.getByRole('group', { name: '都道府県ごとの投稿' });
+
+		// ① 47件すべてにラベルが付く。
+		await expect(map.getByRole('link')).toHaveCount(47);
+		await expect(map.getByRole('link', { name: '沖縄県 0件（未訪問）' })).toBeVisible();
+
+		// **絵は読み上げに出さない。** 出すと中身の無い項目が1つ増えるだけになる。
+		await expect(map.getByRole('img')).toHaveCount(0);
+
+		// ② 表には県名が文字として並ぶ。
+		await page.getByRole('button', { name: '同じ内容を表で見る' }).click();
+		const table = page.getByRole('table');
+		await expect(table.getByRole('row')).toHaveCount(48); // 見出しの行を含む
+		// **県名は行見出しなので役割は rowheader である。** cell では当たらない。
+		await expect(table.getByRole('rowheader', { name: '東京都' })).toBeVisible();
+		await expect(table.getByRole('rowheader', { name: '沖縄県' })).toBeVisible();
 	});
 
 	// **各マスは県名と件数を読み上げられる。** 色だけでは何も伝わらない。
@@ -125,5 +162,76 @@ test.describe('都道府県制覇マップ', () => {
 			.analyze();
 
 		expect(results.violations).toEqual([]);
+	});
+
+	/*
+	狭い画面で、地図だけが横に流れること。
+
+	**絵は 1536px 幅の画像で、縮めると県名も同じ比率で縮む。**
+	画面幅に合わせると 390px の端末で文字が 5px になり、読むことも
+	押すこともできない。縮めて読めなくするより、はみ出させて読めるほうを取る。
+
+	ただし**ページ全体が横に溢れてはいけない。** 溢れると、地図と関係ない
+	本文まで横スクロールが要る画面になる。地図の枠の中だけで流す。
+	*/
+	test('狭い画面では地図だけが横に流れる', async ({ page }) => {
+		const me = await signup(page, { displayName: '狭い画面の人' });
+
+		await page.setViewportSize({ width: 390, height: 780 });
+		await page.goto(`/users/${me.handle}`);
+		await expect(page.getByRole('group', { name: '都道府県ごとの投稿' })).toBeVisible();
+
+		const measured = await page.evaluate(() => {
+			const doc = document.documentElement;
+			const svg = document.querySelector('svg[role="group"]');
+			const viewport = svg?.closest('div')?.parentElement;
+			return {
+				pageOverflow: doc.scrollWidth - doc.clientWidth,
+				mapOverflow: viewport ? viewport.scrollWidth - viewport.clientWidth : 0
+			};
+		});
+
+		// ページ全体は横に溢れない。
+		expect(measured.pageOverflow, 'ページ全体が横に溢れている').toBeLessThanOrEqual(1);
+		// 地図は枠の中で横に流れる。
+		expect(measured.mapOverflow, '地図が横に流れていない（縮んでいる）').toBeGreaterThan(100);
+	});
+
+	/*
+	表の行に地方の色が実際に付くこと。
+
+	**CSS を書いただけでは足りない。** Svelte は使われていないと判断した
+	規則を落とすし、色相を行へ渡し忘れても画面は壊れず、色が付かないまま
+	静かに通ってしまう。**描画結果の色を読んで確かめる。**
+
+	色は情報を運ばない（地方は「地方」の列に語で出ている）ので、
+	ここで見るのは「意図した見た目になっているか」である。
+	*/
+	test('表の行に地方ごとの色が付く', async ({ page }) => {
+		const me = await signup(page, { displayName: '表の色を見る人' });
+
+		await page.goto(`/users/${me.handle}`);
+		await page.getByRole('button', { name: '同じ内容を表で見る' }).click();
+
+		const row = (name: string) =>
+			page.getByRole('row').filter({ has: page.getByRole('cell', { name, exact: true }) });
+
+		// 北海道（北海道）と 東京都（関東）は別の地方なので、別の色になる。
+		const hokkaido = row('北海道').first();
+		const tokyo = row('関東').first();
+
+		const color = async (loc: typeof hokkaido) =>
+			loc.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+		const a = await color(hokkaido);
+		const b = await color(tokyo);
+
+		// **透明のままなら色が当たっていない。**
+		expect(a, '行に背景色が付いていない').not.toBe('rgba(0, 0, 0, 0)');
+		expect(a, '行に背景色が付いていない').not.toBe('transparent');
+		expect(b, '行に背景色が付いていない').not.toBe('rgba(0, 0, 0, 0)');
+
+		// 地方が違えば色も違う。
+		expect(a, '地方が違うのに同じ色になっている').not.toBe(b);
 	});
 });

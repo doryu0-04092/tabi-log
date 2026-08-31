@@ -1,22 +1,25 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { PrefectureCount } from '$lib/api/users';
-	import {
-		PREFECTURE_TILES,
-		REGION_HUES,
-		TILE_COLUMNS,
-		TILE_ROWS
-	} from '$lib/data/prefecture-tiles';
+	import mapImage from '$lib/assets/japan-map.png';
+	import { MAP_HEIGHT, MAP_WIDTH, PREFECTURE_HITS, REGION_COLORS } from '$lib/data/prefecture-hits';
 
 	let { prefectures }: { prefectures: PrefectureCount[] } = $props();
 
 	let byCode = $derived(new Map(prefectures.map((p) => [p.code, p])));
 
-	/** マスの並び。配置データの順にそのまま描く。 */
-	let tiles = $derived(
-		PREFECTURE_TILES.map((t) => ({ ...t, prefecture: byCode.get(t.code) })).filter(
-			(t) => t.prefecture !== undefined
-		)
+	/**
+	 * 押せる場所。**県名の文字の上に重ねる。**
+	 *
+	 * データベースに無い県コードは出さない。マスタは 47 件固定だが、
+	 * 取得に失敗した状態で当たり判定だけ出すと、押しても何も起きない。
+	 */
+	let hits = $derived(
+		PREFECTURE_HITS.flatMap((h) => {
+			const prefecture = byCode.get(h.code);
+			if (prefecture === undefined) return [];
+			return [{ ...h, prefecture, visited: prefecture.postCount > 0 }];
+		})
 	);
 
 	let visited = $derived(prefectures.filter((p) => p.postCount > 0));
@@ -24,11 +27,18 @@
 		prefectures.length === 0 ? 0 : Math.round((visited.length / prefectures.length) * 100)
 	);
 
+	/** 地方の色を CSS へ渡す。**明度は CSS 側で決める。** */
+	function tint(region: string): string {
+		const c = REGION_COLORS[region];
+		return c === undefined ? '--hue:210; --sat:20%;' : `--hue:${c.hue}; --sat:${c.sat}%;`;
+	}
+
 	/**
 	 * 同じ内容を表でも見せるかどうか。
 	 *
-	 * **マップは補助であって、唯一の伝え方にはしない。** 位置関係を
-	 * 頼りにできない利用者にも、県名と件数の一覧で同じ情報が届く必要がある。
+	 * **マップは補助であって、唯一の伝え方にはしない。**
+	 * 県名は絵に焼き込まれており、読み上げには渡らない。
+	 * 位置関係を頼りにできない利用者には、表が唯一の経路になる。
 	 */
 	let showTable = $state(false);
 </script>
@@ -36,43 +46,52 @@
 <section aria-labelledby="map-heading">
 	<div class="head">
 		<h2 id="map-heading">都道府県制覇マップ</h2>
-		<!--
-			率は色ではなく数と語で示す。マップを見なくても達成が分かる。
-		-->
+		<!-- 率は色ではなく数と語で示す。マップを見なくても達成が分かる。 -->
 		<p class="rate">{visited.length} / {prefectures.length} 県（{rate}%）</p>
 	</div>
 
 	<!--
-		**マスはリンクにする。** その県の投稿一覧へ行けることが目的であり、
-		キーボードでも順に辿れる必要がある。
-		aria-label に県名と件数を入れ、読み上げだけで内容が分かるようにする。
+		**絵は 1 枚の画像で、その上に県名ぶんのリンクを重ねる。**
+
+		県ごとの領域を持たないため、訪問済みを県の形で塗ることはできない。
+		代わりに県名の枠を塗り、印を添える。制覇の全体像は率と表で伝える。
+
+		画像そのものは読み上げから外す。県名は絵に焼き込まれており、
+		画像を1つの説明でまとめても中身は伝わらない。
+		伝える役はリンクの aria-label と表が担う。
 	-->
-	<ul
-		class="grid"
-		style="--rows:{TILE_ROWS}; --columns:{TILE_COLUMNS};"
-		aria-label="都道府県ごとの投稿"
-	>
-		{#each tiles as tile (tile.code)}
-			{@const p = tile.prefecture!}
-			{@const isVisited = p.postCount > 0}
-			<li style="grid-row:{tile.row}; grid-column:{tile.column};">
-				<a
-					class="tile"
-					class:visited={isVisited}
-					style="--hue:{REGION_HUES[p.region] ?? 210};"
-					href={resolve('/prefectures/[code]', { code: p.code })}
-					aria-label="{p.name} {p.postCount}件{isVisited ? '（訪問済み）' : '（未訪問）'}"
-				>
-					<!--
-						**色の違いだけで訪問済みを示さない。** 訪問済みには
-						県名の頭文字を出し、未訪問には出さない。塗りの濃さ・
-						文字の有無・読み上げのラベルの3つで伝える。
-					-->
-					<span aria-hidden="true" class="mark">{isVisited ? p.name.slice(0, 1) : ''}</span>
-				</a>
-			</li>
-		{/each}
-	</ul>
+	<div class="viewport">
+		<div class="stage">
+			<svg viewBox="0 0 {MAP_WIDTH} {MAP_HEIGHT}" role="group" aria-label="都道府県ごとの投稿">
+				<image
+					href={mapImage}
+					x="0"
+					y="0"
+					width={MAP_WIDTH}
+					height={MAP_HEIGHT}
+					aria-hidden="true"
+				/>
+				{#each hits as hit (hit.code)}
+					{@const p = hit.prefecture}
+					<a
+						class="pref"
+						class:visited={hit.visited}
+						href={resolve('/prefectures/[code]', { code: p.code })}
+						aria-label="{p.name} {p.postCount}件{hit.visited ? '（訪問済み）' : '（未訪問）'}"
+					>
+						<rect x={hit.x} y={hit.y} width={hit.w} height={hit.h} rx="6" />
+						<!--
+							**色の違いだけで訪問済みを示さない。** 塗りに加えて
+							右上に印を打ち、読み上げのラベルにも語で入れる。
+						-->
+						{#if hit.visited}
+							<circle class="dot" cx={hit.x + hit.w - 5} cy={hit.y + 5} r="4" />
+						{/if}
+					</a>
+				{/each}
+			</svg>
+		</div>
+	</div>
 
 	<button type="button" onclick={() => (showTable = !showTable)} aria-expanded={showTable}>
 		{showTable ? '表を閉じる' : '同じ内容を表で見る'}
@@ -80,7 +99,7 @@
 
 	{#if showTable}
 		<table>
-			<caption>都道府県ごとの投稿数</caption>
+			<caption>都道府県ごとの投稿数（行の色は地方）</caption>
 			<thead>
 				<tr>
 					<th scope="col">都道府県</th>
@@ -91,7 +110,12 @@
 			</thead>
 			<tbody>
 				{#each prefectures as p (p.code)}
-					<tr>
+					<!--
+						**行にも地図と同じ地方の色を薄く敷く。** 並べたときに
+						どの行がどの地方かが地図と対応する。色は情報を運ばない
+						（地方は「地方」の列に語で出ている）。
+					-->
+					<tr style={tint(p.region)}>
 						<th scope="row">
 							<a href={resolve('/prefectures/[code]', { code: p.code })}>{p.name}</a>
 						</th>
@@ -124,50 +148,79 @@
 		font-weight: 700;
 	}
 
-	.grid {
-		display: grid;
-		grid-template-rows: repeat(var(--rows), 1fr);
-		grid-template-columns: repeat(var(--columns), 1fr);
-		gap: 2px;
-		list-style: none;
-		/* **狭い画面でも崩れない。** マスの大きさは列数から決まるため、
-		   横に溢れず、正方形の比率だけを保つ。 */
+	/*
+	**狭い画面では横に流す。**
+
+	絵は 1536px 幅の画像で、縮めると県名も同じ比率で縮む。
+	画面幅に合わせると、390px の端末で文字が 5px になり、
+	読むことも押すこともできなくなる（実測）。
+
+	下限を 62rem に取ると文字は約 13px、当たり判定は約 32x20px になる。
+	その幅に満たない画面では横スクロールになる。
+	**縮めて読めなくするより、はみ出させて読めるほうを取る。**
+	*/
+	.viewport {
+		margin-top: var(--space-4);
+		overflow-x: auto;
+		border: var(--line);
+		border-radius: var(--radius);
+		background: #fff;
+	}
+
+	.stage {
+		min-width: 62rem;
+	}
+
+	svg {
+		display: block;
 		width: 100%;
-		max-width: 26rem;
-		aspect-ratio: var(--columns) / var(--rows);
-		margin: var(--space-4) 0 0;
-		padding: 0;
+		height: auto;
 	}
 
-	.tile {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		height: 100%;
-		/* **未訪問でも地方の色を薄く付ける。**
-		   塗られていない状態でも「どの地方の県か」が見え、
-		   まとまりとして地図が読める。訪問済みとの差は明度で付ける。 */
-		/* 未訪問。地方の色を薄く敷き、輪郭は墨で締める。 */
-		background: hsl(var(--hue) 38% 84%);
-		border: 1px solid var(--color-border);
-		border-radius: 2px;
-		font-size: 0.625rem;
-		font-weight: 700;
-		color: var(--color-text);
-		text-decoration: none;
+	/* 触れていないときは絵をそのまま見せる。 */
+	.pref rect {
+		fill: transparent;
+		stroke: transparent;
 	}
 
-	/* **白文字とのコントラストを確保するため明度を下げている。**
-	   色相によっては 55% だと 4.5:1 を下回る。 */
-	.tile.visited {
-		background: hsl(var(--hue) 52% 34%);
-		border-color: var(--color-border);
-		color: #fff;
+	/*
+	訪問済み。**県の形ではなく県名の枠に印を付ける。**
+	絵は 1 枚の画像で県ごとの領域を持たないため、これが限界である。
+
+	**濃く塗り潰さない。** 絵の県名は黒で描かれており、上に濃い色を重ねると
+	名前が読めなくなる（実際にそうなった）。薄い塗りと太い輪郭で示す。
+	*/
+	.visited rect {
+		fill: rgb(31 107 82 / 20%);
+		stroke: #1f6b52;
+		stroke-width: 3;
 	}
 
-	.mark {
-		line-height: 1;
+	/* **色だけに頼らないための印。** 白い縁を付けて、
+	   下がどの地方の色でも見えるようにする。 */
+	.dot {
+		fill: #1f6b52;
+		stroke: #fff;
+		stroke-width: 1.5;
+		pointer-events: none;
+	}
+
+	.pref:hover rect {
+		fill: rgb(173 59 28 / 22%);
+		stroke: #ad3b1c;
+		stroke-width: 3;
+	}
+
+	/* **フォーカスが見えること。** SVG では outline の描かれ方が
+	   ブラウザで揃わないため、輪郭線そのものを太くする。 */
+	.pref:focus {
+		outline: none;
+	}
+
+	.pref:focus-visible rect {
+		fill: rgb(173 59 28 / 30%);
+		stroke: var(--color-text);
+		stroke-width: 4;
 	}
 
 	button {
@@ -185,8 +238,32 @@
 	table {
 		width: 100%;
 		margin-top: var(--space-4);
-		border-collapse: collapse;
+		/* **collapse ではなく separate にする。** collapse では隣り合う枠線が
+		   1本に畳まれる際に行の背景の上へ重なり、色の境目が濁る。
+		   行間は 0 のままにするので、見た目の詰まり方は変わらない。 */
+		border-collapse: separate;
+		border-spacing: 0;
 		font-size: 0.875rem;
+	}
+
+	/*
+	行の背景。**色相と彩度は地図の凡例から来た値、明度はここで決める。**
+
+	明度 88% は、ページの地色（#f6ecd8）との差が十分あり
+	（最も近い北海道でも 35）、地方どうしも見分けられ（最小 34）、
+	本文の色に対して 9.7:1 ある。95% では近畿と九州沖縄が地色に埋もれた。
+	*/
+	tbody tr {
+		background: hsl(var(--hue) var(--sat) 88%);
+	}
+
+	/* **暗いテーマでは明度を下げる。** 同じ 88% を敷くと、
+	   明るい地に明るい文字（#f6ecd8）が乗って読めなくなる。
+	   18% で本文に対して 7.1:1 ある。 */
+	@media (prefers-color-scheme: dark) {
+		tbody tr {
+			background: hsl(var(--hue) var(--sat) 18%);
+		}
 	}
 
 	caption {
@@ -202,6 +279,13 @@
 		border-bottom: var(--line);
 	}
 
+	/* separate では枠線が畳まれないため、表の下端が二重に見える。
+	   最終行だけ止める。 */
+	tbody tr:last-child th,
+	tbody tr:last-child td {
+		border-bottom: none;
+	}
+
 	thead th {
 		color: var(--color-text-muted);
 		font-weight: 600;
@@ -209,5 +293,20 @@
 
 	tbody th {
 		font-weight: 600;
+	}
+
+	/*
+	表の中のリンクは、色ではなく下線で示す。
+
+	**主色は行の色に対してコントラストが足りない。** 実測で
+	明るいテーマの近畿の行が 4.08:1、暗いテーマの中部の行が 3.35:1 で、
+	どちらも 4.5:1 を下回っていた。行に色を敷いた副作用である。
+
+	本文と同じ色にすれば 9.7:1 / 7.1:1 になる。リンクであることは
+	下線で分かるので、**色を失っても何も伝わらなくならない。**
+	*/
+	tbody th a {
+		color: inherit;
+		text-decoration: underline;
 	}
 </style>
