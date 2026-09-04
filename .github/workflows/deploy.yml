@@ -51,7 +51,7 @@ jobs:
 
       # 唯一の追加アクション。OIDC での一時認証情報の取得はこれに任せる。
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
